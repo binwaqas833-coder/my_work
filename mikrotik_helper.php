@@ -96,14 +96,18 @@ function disconnectActiveUser($API, $activeId)
 /**
  * Ongeza voucher/user mpya moja kwa moja kwenye MikroTik
  * (Hii inatumika baada ya mtu kununua voucher kwenye dashboard yako)
+ *
+ * @param array $extra - params za ziada, mfano: ['limit-uptime' => '7d']
  */
-function addHotspotUserToMikrotik($API, $username, $password, $profile = 'default')
+function addHotspotUserToMikrotik($API, $username, $password, $profile = 'default', $extra = [])
 {
-    return $API->comm('/ip/hotspot/user/add', [
+    $params = array_merge([
         'name'     => $username,
         'password' => $password,
         'profile'  => $profile
-    ]);
+    ], $extra);
+
+    return $API->comm('/ip/hotspot/user/add', $params);
 }
 
 /**
@@ -121,4 +125,46 @@ function removeHotspotUserFromMikrotik($API, $username)
         ]);
     }
     return false;
+}
+
+/**
+ * Login mteja moja kwa moja kwenye MikroTik Hotspot (baada ya kutumia vocha
+ * kwenye unganisha_vocha.php). Inahitaji MAC na IP ya mteja - hizi zinapatikana
+ * kutoka kwenye captive portal (session ya index_backup.php).
+ */
+function loginHotspotUser($API, $username, $password, $mac, $ip)
+{
+    return $API->comm('/ip/hotspot/active/login', [
+        'user'        => $username,
+        'password'    => $password,
+        'mac-address' => $mac,
+        'ip'          => $ip
+    ]);
+}
+
+/**
+ * Sasisha profile na muda (limit-uptime) wa mtumiaji ALIYESHAPO kwenye
+ * MikroTik (kwa ajili ya "Renew"). Username = voucher_code (SIYO namba ya simu -
+ * jina la mtumiaji kwenye MikroTik ni voucher_code, sio phone).
+ *
+ * Tunatafuta ".id" halisi kwa jina kwanza (kama removeHotspotUserFromMikrotik),
+ * badala ya kutegemea 'numbers' moja kwa moja - hii ni njia ya uhakika zaidi.
+ *
+ * @return array|false - matokeo ya MikroTik, au false kama mtumiaji hayupo kabisa
+ */
+function renewHotspotUser($API, $username, $profile, $limitUptime)
+{
+    $users = $API->comm('/ip/hotspot/user/print', [
+        '?name' => $username
+    ]);
+
+    if (empty($users) || !isset($users[0]['.id'])) {
+        return false; // mtumiaji huyu hayupo kwenye MikroTik - hatuwezi ku-renew
+    }
+
+    return $API->comm('/ip/hotspot/user/set', [
+        '.id'          => $users[0]['.id'],
+        'profile'      => $profile,
+        'limit-uptime' => $limitUptime
+    ]);
 }
