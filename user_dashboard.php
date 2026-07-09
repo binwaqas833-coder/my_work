@@ -35,24 +35,25 @@ $q4 = mysqli_query($conn,"SELECT COUNT(*) as total FROM vouchers WHERE user_id='
 $d4 = mysqli_fetch_assoc($q4);
 
 // ── MIKROTIK + WATEJA ACTIVE ──
+require_once('routeros_api.class.php');
+require_once('mikrotik_helper.php'); // functions: getMikrotikConnection(), getActiveHotspotUsers(), n.k.
+
 $count = 0;
 $last_seen = null;
 $active_users_list = [];
-require_once('routeros_api.class.php');
-$API = new RouterosAPI();
-$mikrotik_ip = $mikrotik_user = $mikrotik_pass = "";
-$cfg_q = $conn->query("SELECT * FROM mikrotik_configs WHERE user_id='$my_id' LIMIT 1");
-if ($cfg_q && $cfg_q->num_rows > 0) {
-    $cfg = $cfg_q->fetch_assoc();
-    $mikrotik_ip   = $cfg['mikrotik_ip'];
-    $mikrotik_user = $cfg['api_user'];
-    $mikrotik_pass = $cfg['api_pass'];
-}
-if (!empty($mikrotik_ip) && $API->connect($mikrotik_ip, $mikrotik_user, $mikrotik_pass)) {
-    $API->write('/ip/hotspot/active/print');
-    $active_users_list = $API->read();
+$mikrotik_ip = ''; // inatumika chini kwenye kadi ya "Hali ya MikroTik"
+
+$MK_API = getMikrotikConnection($my_id, $conn);
+if ($MK_API) {
+    $active_users_list = getActiveHotspotUsers($MK_API);
     $count = is_array($active_users_list) ? count($active_users_list) : 0;
-    $API->disconnect();
+    $MK_API->disconnect();
+}
+
+// IP ya MikroTik (kwa ajili ya status badge tu, hatuhitaji password/user hapa)
+$cfg_ip_q = $conn->query("SELECT mikrotik_ip FROM mikrotik_configs WHERE user_id='$my_id' LIMIT 1");
+if ($cfg_ip_q && $cfg_ip_q->num_rows > 0) {
+    $mikrotik_ip = $cfg_ip_q->fetch_assoc()['mikrotik_ip'] ?? '';
 }
 
 // ── LAST SEEN ──
@@ -160,6 +161,7 @@ function formatWA($phone) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Bin Waqas · 5G Wi-Fi Premium</title>
+<link rel="preload" as="image" href="beach5.jpg">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -181,7 +183,7 @@ function formatWA($phone) {
     --blur: blur(18px);
 }
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'DM Sans',sans-serif;background-image:linear-gradient(rgba(0,0,0,0.5)),url(beach5.jpg);background-size:cover;background-position:center;background-attachment:fixed;color:var(--text);display:flex;min-height:100vh;overflow-x:hidden}
+body{font-family:'DM Sans',sans-serif;background-color:#0d1b17;background-image:linear-gradient(rgba(0,0,0,0.5)),url(beach5.jpg);background-size:cover;background-position:center;background-attachment:fixed;color:var(--text);display:flex;min-height:100vh;overflow-x:hidden}
 body::before{content:'';position:fixed;inset:0;background:rgba(0,0,0,0.30);pointer-events:none;z-index:0}
 .sidebar{width:var(--sidebar);background:var(--surface);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;inset:0 auto 0 0;z-index:100;transition:transform 0.35s cubic-bezier(.4,0,.2,1)}
 .sidebar-brand{padding:24px 24px 18px;border-bottom:1px solid var(--border)}
@@ -189,10 +191,10 @@ body::before{content:'';position:fixed;inset:0;background:rgba(0,0,0,0.30);point
 .brand-icon{width:38px;height:38px;background:linear-gradient(135deg,var(--accent),#00a86b);border-radius:10px;display:grid;place-items:center;font-size:16px;color:#000;box-shadow:0 0 20px rgba(7,247,147,0.35)}
 .brand-name{font-family:'Syne',sans-serif;font-weight:800;font-size:17px;color:#fff}
 .brand-sub{font-size:10px;color:var(--text-dim);letter-spacing:2px;text-transform:uppercase;padding-left:50px;margin-top:2px}
-.close-btn{display:none;background:none;border:none;color:var(--text);font-size:20px;cursor:pointer;margin-bottom:8px}
+.close-btn{display:none;background:none;border:none;color: #07f793;font-size:20px;cursor:pointer;margin-bottom:8px}
 .sidebar-section-label{font-size:9px;letter-spacing:2.5px;text-transform:uppercase;color:var(--text-muted);padding:18px 24px 8px;font-family:'Space Mono',monospace}
 .sidebar-menu{list-style:none;padding:0 12px;display:flex;flex-direction:column;gap:2px}
-.sidebar-menu a{display:flex;align-items:center;gap:12px;padding:11px 14px;color:var(--text-dim);text-decoration:none;font-size:13.5px;font-weight:500;border-radius:10px;transition:all 0.2s;position:relative;cursor:pointer}
+.sidebar-menu a{display:flex;align-items:center;gap:12px;padding:11px 14px;color: #07f793;text-decoration:none;font-size:13.5px;font-weight:500;border-radius:10px;transition:all 0.2s;position:relative;cursor:pointer}
 .sidebar-menu a .nav-icon{width:32px;height:32px;display:grid;place-items:center;border-radius:8px;font-size:13px;background:transparent;transition:all 0.2s;flex-shrink:0}
 .sidebar-menu a:hover{color:#fff;background:var(--surface2)}
 .sidebar-menu a:hover .nav-icon{background:rgba(7,247,147,0.08);color:var(--accent)}
@@ -214,7 +216,7 @@ body::before{content:'';position:fixed;inset:0;background:rgba(0,0,0,0.30);point
 .dashboard-section.active{display:block}
 .main-content{flex:1;margin-left:var(--sidebar);padding:26px;position:relative;z-index:1;max-width:calc(100% - var(--sidebar))}
 .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:28px;padding:0 4px}
-.menu-toggle{display:none;background:none;border:none;color:var(--text);font-size:20px;cursor:pointer}
+.menu-toggle{display:none;background:none;border:none;color: #07f793;font-size:20px;cursor:pointer}
 .topbar-left h2{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:#fff;letter-spacing:-0.5px}
 .topbar-left p{font-size:12px;color:var(--text-dim);margin-top:2px}
 .topbar-right{display:flex;align-items:center;gap:12px}
@@ -399,6 +401,16 @@ code{font-family:'Space Mono',monospace;font-size:11px;color:var(--accent2);back
 }
 @media(max-width:480px){.cards-grid{grid-template-columns:1fr}#voucher-used .vu-cards{grid-template-columns:1fr}}
 @media(min-width:769px){.close-btn{display:none!important}.menu-toggle{margin-top:-50px;padding:8px;display:none!important}}
+
+/* Fix ya "kupepesuka" (flicker) ya backdrop-filter: kila kipengele chenye blur
+   kinalazimishwa kutengeneza GPU layer yake, badala ya kuhesabiwa upya pamoja
+   na vingine kila background/animation inapobadilika. */
+.sidebar,.panel,.stat-card,.tariff-card,.station-box,.topbar-pill,.admin-badge{
+    transform:translateZ(0);
+    -webkit-transform:translateZ(0);
+    backface-visibility:hidden;
+    -webkit-backface-visibility:hidden;
+}
 </style>
 </head>
 <body>
@@ -1776,8 +1788,8 @@ function vmPrintSelected(){
         const price=parseInt(c.dataset.price)||0;
         const days=c.dataset.days||'—';
         return `<div class="vm-print-card">
-            <div class="pc-brand">📶 5G Wi-Fi Premium</div>
-            <hr class="pc-line">
+            <div class="pc-brand">🛜 Tech 5G Wi-Fi </div>
+            <hr class="pc-line"> 
             <div class="pc-pkg">${pkg.toUpperCase()} · Siku ${days}</div>
             <div class="pc-code">${code}</div>
             <div class="pc-price">Tsh ${price.toLocaleString()}</div>
