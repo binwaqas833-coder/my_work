@@ -4,6 +4,13 @@ include 'login_signup.php';
 require_once 'routeros_api.class.php';
 require_once 'mikrotik_helper.php';
 
+// ── NASA OMBI LA LUGHA KUTOKA KWA JAVASCRIPT NA LIHIFADHI KWENYE SESSION ──
+if (isset($_POST['set_lang'])) {
+    $_SESSION['lang'] = $_POST['set_lang'] === 'en' ? 'en' : 'sw';
+    echo json_encode(['status' => 'success']);
+    exit();
+}
+
 // ── 1. NASA TAARIFA ZA MIKROTIK NA ZIHIFADHI KWENYE SESSION ──
 if (isset($_GET['mac'])) {
     $_SESSION['client_mac']    = $_GET['mac'];
@@ -371,7 +378,7 @@ if (isset($conn)) {
     <div class="header">
         <div class="wifi-logo">
             <i class="fa-solid fa-wifi"></i>
-            <h3 class="heading-1">5G <span class="accent">Unlimited</span> Wi-Fi</h3>
+            <h3 class="heading-1">Tech <span class="accent">5G </span> Wi-Fi</h3>
         </div>
         <div class="maelezo" data-translate="maelezo">
             Chagua kifurushi ukipendacho na ulipie kwa akaunti yako ya simu kielektroniki.
@@ -436,17 +443,17 @@ if (isset($conn)) {
         <!-- MPANGO WA 2: TAYARI UNA VOCHA -->
         <div class="sehemu-vocha">
             <p class="kichwa-sehemu" data-translate="tayari_vocha" style="margin-top:0;">Tayari una Vocha?</p>
-            <form action="tumia_vocha.php" method="POST" id="form-vocha" class="input-vocha-container">
+            <form action="unganisha_vocha.php" method="POST" id="form-vocha" class="input-vocha-container">
                 <input type="text" name="kodi_vocha" id="kodi_vocha" placeholder="Ingiza namba ya vocha hapa">
                 <button type="submit" class="btn-unganisha" data-translate="unganisha_btn">Unganisha</button>
             </form>
         </div>
 
-        <!-- MPANGO WA 3: TRIAL -->
+        <!-- MPANGO WA 5: TRIAL -->
         <div class="sehemu-trial">
             <p class="kichwa-sehemu" style="margin-top:0;" data-translate="jaribu_kichwa">Mteja Mpya? Jaribu Bure</p>
             <form action="trial_handler.php" method="POST">
-                <button type="submit" class="btn-trial">Jaribu Dakika 3 Bure</button>
+                <button type="submit" class="btn-trial" data-translate="jaribu_btn">Jaribu Dakika 5 Bure</button>
             </form>
         </div>
     </div>
@@ -486,6 +493,7 @@ const tafsiri = {
         placeholder_vocha: "Ingiza namba ya vocha hapa",
         unganisha_btn: "Unganisha",
         jaribu_kichwa: "Mteja Mpya? Jaribu Bure",
+        jaribu_btn: "Jaribu Dakika 5 Bure",
         msaada: "Unahitaji Msaada? Tupigie:",
         haki: "Haki zote zimehifadhiwa.",
         kosa_simu: "Tafadhali ingiza namba ya simu sahihi ya tarakimu 10.",
@@ -505,6 +513,7 @@ const tafsiri = {
         placeholder_vocha: "Enter voucher code here",
         unganisha_btn: "Connect",
         jaribu_kichwa: "New Customer? Try Free",
+        jaribu_btn: "Try 5 Minutes Free",
         msaada: "Need Help? Call Us:",
         haki: "All rights reserved.",
         kosa_simu: "Please enter a valid 10-digit phone number.",
@@ -543,6 +552,13 @@ function badilishaLugha(lugha) {
     document.getElementById('namba_simu').placeholder = tafsiri[lugha].placeholder_simu;
     document.getElementById('kodi_vocha').placeholder = tafsiri[lugha].placeholder_vocha;
     document.getElementById("btn-malipo").innerHTML = `<span>${tafsiri[lugha].lipia_btn}</span> Tsh ${beiYaSasaMaandishi}`;
+
+    // TUMA LUGHA ILIYOCHAGULIWA KWENYE PHP SESSION
+    fetch(window.location.href, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'set_lang=' + lugha
+    });
 }
 
 // Validation za Fomu kupitia Toast
