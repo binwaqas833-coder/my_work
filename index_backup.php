@@ -578,7 +578,7 @@ document.getElementById('form-vocha').addEventListener('submit', function(e) {
     }
 });
 
-// Somo la URL errors kutoka tumia_vocha.php
+// Somo la URL errors kutoka unganisha_vocha.php
 window.addEventListener('DOMContentLoaded', () => {
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.has('error')) {
