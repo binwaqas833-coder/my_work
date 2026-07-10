@@ -29,9 +29,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
             $API = new RouterosAPI();
             if ($API->connect($cfg['mikrotik_ip'], $cfg['api_user'], $cfg['api_pass'])) {
                 // Tafuta jina au code ya vocha ili tuiondoe MikroTik
-                $vc = $conn->query("SELECT code FROM vouchers WHERE id=$vid AND user_id='$my_id' LIMIT 1")->fetch_assoc();
+                $vc = $conn->query("SELECT voucher_code FROM vouchers WHERE id=$vid AND user_id='$my_id' LIMIT 1")->fetch_assoc();
                 if ($vc) {
-                    $API->comm('/ip/hotspot/user/remove', ['numbers' => $vc['code']]);
+                    $API->comm('/ip/hotspot/user/remove', ['numbers' => $vc['voucher_code']]);
                 }
                 $API->disconnect();
             }
@@ -66,9 +66,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
         $deleted = 0;
         foreach ($ids as $vid) {
             if ($API) {
-                $vc = $conn->query("SELECT code FROM vouchers WHERE id=$vid AND user_id='$my_id' LIMIT 1")->fetch_assoc();
+                $vc = $conn->query("SELECT voucher_code FROM vouchers WHERE id=$vid AND user_id='$my_id' LIMIT 1")->fetch_assoc();
                 if ($vc) {
-                    $API->comm('/ip/hotspot/user/remove', ['numbers' => $vc['code']]);
+                    $API->comm('/ip/hotspot/user/remove', ['numbers' => $vc['voucher_code']]);
                 }
             }
             

@@ -35,15 +35,26 @@ $API->debug = false;
 if ($API->connect($mikrotik_ip, $api_user, $api_pass)) {
     $API->disconnect();
 
+    // id=LAST_INSERT_ID(id) inafanya $conn->insert_id irudishe id ya row hii
+    // hata pale ambapo config ilishakuwepo (UPDATE), siyo kwenye INSERT mpya tu.
     $sql = "INSERT INTO mikrotik_configs (user_id, mikrotik_ip, api_user, api_pass)
             VALUES ('$user_id', '$mikrotik_ip', '$api_user', '$api_pass')
             ON DUPLICATE KEY UPDATE
-            mikrotik_ip='$mikrotik_ip', api_user='$api_user', api_pass='$api_pass'";
+            id=LAST_INSERT_ID(id), mikrotik_ip='$mikrotik_ip', api_user='$api_user', api_pass='$api_pass'";
 
     if ($conn->query($sql) === TRUE) {
+        $row_id = (int)$conn->insert_id;
+
+        // Mpe router hii router_id yake kama bado haina. router_id ndiyo namba
+        // inayoandikwa kwenye login.html (var routerID) ya router husika, na
+        // ndiyo inayotumiwa na index_backup.php kuitambua.
+        $conn->query("UPDATE mikrotik_configs SET router_id = id WHERE id = $row_id AND (router_id IS NULL OR router_id = 0)");
+        $rid_row   = $conn->query("SELECT router_id FROM mikrotik_configs WHERE id = $row_id")->fetch_assoc();
+        $router_id = (int)($rid_row['router_id'] ?? 0);
+
         $_SESSION['toast'] = [
             'type' => 'success',
-            'msg'  => 'MikroTik ya ' . htmlspecialchars($mteja_name, ENT_QUOTES) . ' imethibitishwa na kuhifadhiwa! 🎉'
+            'msg'  => 'MikroTik ya ' . htmlspecialchars($mteja_name, ENT_QUOTES) . ' imethibitishwa na kuhifadhiwa! 🎉 Router ID: ' . $router_id . ' — weka namba hii kwenye login.html (var routerID) ya router hii.'
         ];
     } else {
         $_SESSION['toast'] = [
