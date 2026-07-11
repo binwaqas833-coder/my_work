@@ -405,11 +405,18 @@ code{font-family:'Space Mono',monospace;font-size:11px;color:var(--accent2);back
 /* Fix ya "kupepesuka" (flicker) ya backdrop-filter: kila kipengele chenye blur
    kinalazimishwa kutengeneza GPU layer yake, badala ya kuhesabiwa upya pamoja
    na vingine kila background/animation inapobadilika. */
-.sidebar,.panel,.stat-card,.tariff-card,.station-box,.topbar-pill,.admin-badge{
+.panel,.stat-card,.tariff-card,.station-box,.topbar-pill,.admin-badge{
     transform:translateZ(0);
     -webkit-transform:translateZ(0);
     backface-visibility:hidden;
     -webkit-backface-visibility:hidden;
+}
+/* .sidebar haipati transform:translateZ(0) moja kwa moja kwa sababu
+   inagongana na .sidebar.active (translateX) inayotumika kuifungua/kuifunga
+   kwenye simu - will-change peke yake inatosha kuzuia flicker bila kuzima
+   toggle. */
+.sidebar{
+    will-change:backdrop-filter;
 }
 </style>
 </head>
