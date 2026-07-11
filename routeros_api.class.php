@@ -103,7 +103,7 @@ class RouterosAPI
             $this->debug('Connection attempt #' . $ATTEMPT . ' to ' . $PROTOCOL . $ip . ':' . $this->port . '...');
             $this->socket = @stream_socket_client($PROTOCOL . $ip.':'. $this->port, $this->error_no, $this->error_str, $this->timeout, STREAM_CLIENT_CONNECT,$context);
             if ($this->socket) {
-                socket_set_timeout($this->socket, $this->timeout);
+                stream_set_timeout($this->socket, $this->timeout);
                 $this->write('/login', false);
                 $this->write('=name=' . $login, false);
                 $this->write('=password=' . $password);
@@ -287,7 +287,13 @@ class RouterosAPI
         while (true) {
             // Read the first byte of input which gives us some or all of the length
             // of the remaining reply.
-            $BYTE   = ord(fread($this->socket, 1));
+            $FIRST = fread($this->socket, 1);
+            if ($FIRST === '' || $FIRST === false) {
+                // Stream closed by the router (or timed out) - stop reading,
+                // otherwise ord('') loops forever on a dead connection.
+                break;
+            }
+            $BYTE   = ord($FIRST);
             $LENGTH = 0;
             // If the first bit is set then we need to remove the first four bits, shift left 8
             // and then read another byte in.
