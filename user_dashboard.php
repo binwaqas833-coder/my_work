@@ -448,6 +448,9 @@ code{font-family:'Space Mono',monospace;font-size:11px;color:var(--accent2);back
             <a onclick="onyeshaSection('voucher-used')"><div class="nav-icon"><i class="fa-solid fa-circle-check"></i></div>Vocha Zilizotumika</a>
         </li>
         <li>
+            <a href="malipo_status.php"><div class="nav-icon"><i class="fa-solid fa-money-bill-transfer"></i></div>Hali za Malipo</a>
+        </li>
+        <li>
             <a href="logout.php" class="logout-link"><div class="nav-icon"><i class="fa-solid fa-right-from-bracket"></i></div>Logout</a>
         </li>
     </ul>
