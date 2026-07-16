@@ -44,7 +44,9 @@ $active_users_list = [];
 $mikrotik_ip = ''; // inatumika chini kwenye kadi ya "Hali ya MikroTik"
 
 $MK_API = getMikrotikConnection($my_id, $conn);
+$mikrotik_online = false; // hii ndiyo hali HALISI ya connection, si kama IP tu ipo DB
 if ($MK_API) {
+    $mikrotik_online = true;
     $active_users_list = getActiveHotspotUsers($MK_API);
     $count = is_array($active_users_list) ? count($active_users_list) : 0;
     $MK_API->disconnect();
@@ -160,7 +162,11 @@ function formatWA($phone) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bin Waqas · 5G Wi-Fi Premium</title>
+<title>Tech 5G Wi-Fi </title>
+<link rel="icon" type="image/x-icon" href="favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
+<link rel="apple-touch-icon" sizes="192x192" href="favicon-192.png">
 <link rel="preload" as="image" href="beach5.jpg">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
@@ -331,6 +337,7 @@ code{font-family:'Space Mono',monospace;font-size:11px;color:var(--accent2);back
 .status-item:last-child{border-bottom:none}
 .status-label{color:rgba(255,255,255,0.60);display:flex;align-items:center;gap:8px}
 .val-ok{color:var(--accent);font-weight:700;font-family:'Space Mono',monospace;font-size:11px}
+.val-bad{color:var(--accent3);font-weight:700;font-family:'Space Mono',monospace;font-size:11px}
 .val-num{color:#fff;font-family:'Space Mono',monospace;font-size:11px}
 .exp-ok{color:var(--accent);font-size:12px;font-weight:600}
 .exp-soon{color:#f59e0b;font-size:12px;font-weight:600}
@@ -431,7 +438,7 @@ code{font-family:'Space Mono',monospace;font-size:11px;color:var(--accent2);back
             <div class="brand-icon"><i class="fa-solid fa-wifi"></i></div>
             <div><div class="brand-name">System</div></div>
         </div>
-        <div class="brand-sub">5G Wi-Fi Premium</div>
+        <div class="brand-sub">Tech 5G Wi-Fi </div>
     </div>
     <div class="sidebar-section-label">Navigation</div>
     <ul class="sidebar-menu">
@@ -710,8 +717,8 @@ code{font-family:'Space Mono',monospace;font-size:11px;color:var(--accent2);back
                     <div class="panel-title"><h3><i class="fa-solid fa-server"></i> Hali ya Mfumo</h3></div>
                     <ul class="status-list">
                         <li class="status-item">
-                            <span class="status-label"><i class="fa-solid fa-circle" style="color:var(--accent);font-size:8px;"></i> MikroTik</span>
-                            <span class="val-ok"><?php echo !empty($mikrotik_ip)?'ONLINE':'OFFLINE'; ?></span>
+                            <span class="status-label"><i class="fa-solid fa-circle" style="color:<?php echo $mikrotik_online?'var(--accent)':'var(--accent3)'; ?>;font-size:8px;"></i> MikroTik</span>
+                            <span class="<?php echo $mikrotik_online?'val-ok':'val-bad'; ?>"><?php echo $mikrotik_online?'ONLINE':'OFFLINE'; ?></span>
                         </li>
                         <li class="status-item">
                             <span class="status-label"><i class="fa-solid fa-database"></i> Database</span>
@@ -1056,9 +1063,13 @@ code{font-family:'Space Mono',monospace;font-size:11px;color:var(--accent2);back
             <div style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:18px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
                 <div style="width:44px;height:44px;border-radius:10px;background:rgba(7,247,147,0.12);display:grid;place-items:center;font-size:18px;color:var(--accent);flex-shrink:0;"><i class="fa-solid fa-wifi"></i></div>
                 <div style="flex:1;min-width:200px;">
-                    <?php if (!empty($mikrotik_info['mikrotik_ip'])): ?>
-                        <div style="font-weight:700;font-size:14px;margin-bottom:4px;"><i class="fa-solid fa-circle" style="color:var(--accent);font-size:8px;"></i> Imeunganishwa</div>
+                    <?php if ($mikrotik_online): ?>
+                        <div style="font-weight:700;font-size:14px;margin-bottom:4px;"><i class="fa-solid fa-circle" style="color:var(--accent);font-size:8px;"></i> Imeunganishwa (Online)</div>
                         <div style="font-size:12px;color:var(--text-dim);font-family:'Space Mono',monospace;">IP: <?php echo htmlspecialchars($mikrotik_info['mikrotik_ip']); ?></div>
+                    <?php elseif (!empty($mikrotik_info['mikrotik_ip'])): ?>
+                        <div style="font-weight:700;font-size:14px;margin-bottom:4px;color:var(--accent3);"><i class="fa-solid fa-circle" style="color:var(--accent3);font-size:8px;"></i> Offline (IP ipo, haifikiki sasa)</div>
+                        <div style="font-size:12px;color:var(--text-dim);font-family:'Space Mono',monospace;">IP: <?php echo htmlspecialchars($mikrotik_info['mikrotik_ip']); ?></div>
+                        <div style="font-size:12px;color:var(--text-dim);margin-top:4px;">Router haijibu kwa sasa. Hakikisha iko mtandaoni au wasiliana na Msimamizi.</div>
                     <?php else: ?>
                         <div style="font-weight:700;font-size:14px;margin-bottom:4px;color:var(--accent3);"><i class="fa-solid fa-circle" style="color:var(--accent3);font-size:8px;"></i> Bado Hujaunganishwa</div>
                         <div style="font-size:12px;color:var(--text-dim);">Wasiliana na Msimamizi (Admin) kuunganisha MikroTik yako.</div>
@@ -1095,7 +1106,7 @@ code{font-family:'Space Mono',monospace;font-size:11px;color:var(--accent2);back
     </div><!-- END #mipangilio -->
 
 
-    <footer class="footer">© 2026 Bin Waqas Wi-Fi System &nbsp;·&nbsp; Haki zote zimehifadhiwa</footer>
+    <footer class="footer">© <?php echo date('Y'); ?> Tech 5G Wi-Fi Billing System &nbsp;·&nbsp; Haki zote zimehifadhiwa</footer>
 </main>
 <!-- ══════════════════════════════════════
      MODALS

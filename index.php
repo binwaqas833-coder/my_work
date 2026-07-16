@@ -11,6 +11,10 @@ if (isset($_SESSION['user_id'])) {
 <head>
     <meta charset="UTF-8">
     <title>Login System</title>
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
+    <link rel="apple-touch-icon" sizes="192x192" href="favicon-192.png">
     <style>    
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'DM Sans', sans-serif; }
         body { display: flex; justify-content: center; align-items: center; min-height: 100vh; background-image: linear-gradient(rgba(0,0,0,0.5)),url(beach5.jpg); background-repeat: no-repeat; background-position: center; background-size: cover; width: 100%; overflow: hidden; }
@@ -33,6 +37,8 @@ if (isset($_SESSION['user_id'])) {
         .links span { cursor: pointer; }
         .hidden { display: none; }
         .toggle-password { position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; width: 20px; height: 20px; fill: #fff; }
+ 
+       .footer{bottom: 4px;text-align:center;padding:20px;font-size:11px;color:rgba(255,255,255,0.35);right: 0;left: 0;  z-index: 5;position: fixed;font-family:'Space Mono',monospace}
 
 /* Inaficha jicho la kivinjari (Browser Native Password Toggle) */
 input::-ms-reveal,
@@ -161,6 +167,8 @@ input::-webkit-credentials-auto-fill-button {
     }
 }
 </script>
+
+<footer class="footer">© <?php echo date('Y'); ?> Tech 5G Wi-Fi Billing System &nbsp;·&nbsp; Haki zote zimehifadhiwa</footer>
 
 </body>
 </html>

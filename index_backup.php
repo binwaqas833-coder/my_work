@@ -88,6 +88,10 @@ if (isset($conn)) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>5G Unlimited Wi-Fi</title>
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
+    <link rel="apple-touch-icon" sizes="192x192" href="favicon-192.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -465,7 +469,7 @@ if (isset($conn)) {
             <strong><?php echo htmlspecialchars($namba_ya_msaada); ?></strong>
         </p>
         <p class="copyright-text">
-            &copy; 2026 Bin Waqas 5G Unlimited Wi-Fi System. 
+            &copy; <?php echo date('Y'); ?> Tech 5G Wi-Fi System. 
             <span data-translate="haki">Haki zote zimehifadhiwa.</span>
         </p>
     </div>

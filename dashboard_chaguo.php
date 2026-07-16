@@ -49,7 +49,7 @@ if (isset($_POST['save_station'])) {
     } else {
         $_SESSION['toast'] = ['type' => 'error', 'msg' => 'Hitilafu ya Database: ' . $conn->error];
     }
-    header("Location: dashboard_chaguo.php");
+    header("Location:dashboard_chaguo.php");
     exit();
 }
 
@@ -82,6 +82,10 @@ $total_mikrotik = mysqli_fetch_assoc(mysqli_query($conn,"SELECT COUNT(*) c FROM 
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin Dashboard · 5G Wi-Fi</title>
+<link rel="icon" type="image/x-icon" href="favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
+<link rel="apple-touch-icon" sizes="192x192" href="favicon-192.png">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -419,7 +423,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 </div>
 
-<footer class="footer">© 2026 Bin Waqas Wi-Fi System &nbsp;·&nbsp; Haki zote zimehifadhiwa</footer>
+<footer class="footer">© <?php echo date('Y'); ?> Bin Waqas Wi-Fi System &nbsp;·&nbsp; Haki zote zimehifadhiwa</footer>
 
 <!-- ═══ MODAL: ONGEZA STATION ═══ -->
 <div class="modal-overlay" id="stationModal">
