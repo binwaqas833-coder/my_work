@@ -43,7 +43,7 @@ function getMikrotikConnection($user_id, $conn)
     $connected = $API->connect(
         $config['mikrotik_ip'],
         $config['api_user'],
-        $config['api_pass']
+        mt_decrypt($config['api_pass'])   // decrypt password iliyohifadhiwa
     );
 
     return $connected ? $API : null;

@@ -65,7 +65,8 @@ while ($row = mysqli_fetch_assoc($res)) {
     while ($s = mysqli_fetch_assoc($st)) $row['stations'][] = $s;
 
     // Vuta mipangilio ya MikroTik iliyopo (kama ipo) - kwa ajili ya kuonyesha/edit
-    $mt_row = mysqli_query($conn, "SELECT mikrotik_ip, api_user, api_pass FROM mikrotik_configs WHERE user_id=$uid LIMIT 1");
+    // Hatuvuti api_pass hapa - siri haipaswi kurudishwa kwenye ukurasa/fomu.
+    $mt_row = mysqli_query($conn, "SELECT mikrotik_ip, api_user FROM mikrotik_configs WHERE user_id=$uid LIMIT 1");
     $row['mikrotik'] = ($mt_row && mysqli_num_rows($mt_row) > 0) ? mysqli_fetch_assoc($mt_row) : null;
 
     $wateja[] = $row;
@@ -352,8 +353,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                    value="<?php echo htmlspecialchars($row['mikrotik']['mikrotik_ip'] ?? ''); ?>" required>
                             <input type="text"     name="api_user"    class="mini-input" placeholder="API User"
                                    value="<?php echo htmlspecialchars($row['mikrotik']['api_user'] ?? ''); ?>" required>
-                            <input type="password" name="api_pass"    class="mini-input" placeholder="API Pass"
-                                   value="<?php echo htmlspecialchars($row['mikrotik']['api_pass'] ?? ''); ?>" required>
+                            <input type="password" name="api_pass"    class="mini-input"
+                                   placeholder="<?php echo $row['mikrotik'] ? 'API Pass (acha wazi kubaki ile ile)' : 'API Pass'; ?>"
+                                   autocomplete="new-password" <?php echo $row['mikrotik'] ? '' : 'required'; ?>>
                             <button type="submit" class="btn btn-green btn-sm">
                                 <i class="fa-solid fa-floppy-disk"></i> <?php echo $row['mikrotik'] ? 'Sasisha' : 'Hifadhi'; ?>
                             </button>

@@ -27,7 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
         
         if ($cfg) {
             $API = new RouterosAPI();
-            if ($API->connect($cfg['mikrotik_ip'], $cfg['api_user'], $cfg['api_pass'])) {
+            if ($API->connect($cfg['mikrotik_ip'], $cfg['api_user'], mt_decrypt($cfg['api_pass']))) {
                 // Tafuta jina au code ya vocha ili tuiondoe MikroTik
                 $vc = $conn->query("SELECT voucher_code FROM vouchers WHERE id=$vid AND user_id='$my_id' LIMIT 1")->fetch_assoc();
                 if ($vc) {
@@ -58,7 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
         $API = null;
         if ($cfg) {
             $API = new RouterosAPI();
-            if (!$API->connect($cfg['mikrotik_ip'], $cfg['api_user'], $cfg['api_pass'])) {
+            if (!$API->connect($cfg['mikrotik_ip'], $cfg['api_user'], mt_decrypt($cfg['api_pass']))) {
                 $API = null;
             }
         }

@@ -206,8 +206,10 @@
     em.textContent = errorUjumbe;
   }
 
-  // 2. URL ya server ya PC yako ya PHP (Ikiandikwa IP yako mpya rasmi)
-var serverPHPUrl = "http://192.168.20.253/my_work/index_backup.php";
+  // 2. URL ya UMMA ya seva yako (production). Badilisha YOUR_DOMAIN kuwa domain yako halisi.
+  //    LAZIMA iwe https:// na ifanane na APP_BASE_URL kwenye config.php.
+  //    Pia hakikisha domain hii imeruhusiwa kwenye walled-garden ya router hii.
+var serverPHPUrl = "https://YOUR_DOMAIN/index_backup.php";
 
   // 3. Tunatengeneza link ya redirect yenye taarifa zote muhimu za mteja
   var redirectUrl = serverPHPUrl +

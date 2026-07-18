@@ -3,13 +3,15 @@
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
-ini_set('display_errors', 0); // usichapishe error za PHP moja kwa moja - tunarudisha JSON safi
-error_reporting(E_ALL);
 header('Content-Type: application/json');
 
-include 'login_signup.php';
+include 'login_signup.php';             // inaleta config.php + $conn
 require_once 'routeros_api.class.php';
-require_once 'mikrotik_helper.php';     // helper mpya (mysqli version)
+require_once 'mikrotik_helper.php';     // helper (mysqli version)
+
+// JSON safi: hakikisha error za PHP hazichapishwi ndani ya response (hata dev)
+ini_set('display_errors', 0);
+error_reporting(E_ALL);
 
 function jibu($status, $message = '', $extra = []) {
     echo json_encode(array_merge(['status' => $status, 'message' => $message], $extra));
@@ -151,7 +153,7 @@ $router = $mt_res->fetch_assoc();
 $API = new RouterosAPI();
 $API->debug = false;
 
-if (!$API->connect($router['mikrotik_ip'], $router['api_user'], $router['api_pass'])) {
+if (!$API->connect($router['mikrotik_ip'], $router['api_user'], mt_decrypt($router['api_pass']))) {
     jibu('error', 'Mawasiliano na MikroTik yamefeli! Kagua kama router ipo Online na API imewashwa. 📡❌');
 }
 
