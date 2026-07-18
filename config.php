@@ -24,9 +24,15 @@ define('DB_PASS', getenv('DB_PASS') ?: '');
 define('DB_NAME', getenv('DB_NAME') ?: 'login_signup');
 
 // ── URL ya umma ya seva (BILA '/' mwishoni) ──
-// Production mfano: 'https://wifi.mfano.co.tz'
 // Hii ndiyo inayowekwa kwenye login.html (serverPHPUrl) na callbacks za malipo.
-define('APP_BASE_URL', rtrim(getenv('APP_BASE_URL') ?: 'http://localhost/my_work', '/'));
+// Production hutumia domain halisi; development hutumia localhost. Unaweza
+// ku-override kila wakati kwa environment variable APP_BASE_URL.
+define('APP_BASE_URL', rtrim(
+    getenv('APP_BASE_URL') ?: (APP_ENV === 'production'
+        ? 'https://www.tech5g.co.tz'
+        : 'http://localhost/my_work'),
+    '/'
+));
 
 // ── Ufunguo wa ku-encrypt API password za MikroTik (mikrotik_configs.api_pass) ──
 // LAZIMA uwe siri na UBAKI ILE ILE. Ukiubadilisha, password zilizo-encrypt-iwa
