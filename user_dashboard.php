@@ -53,9 +53,12 @@ if ($MK_API) {
 }
 
 // IP ya MikroTik (kwa ajili ya status badge tu, hatuhitaji password/user hapa)
-$cfg_ip_q = $conn->query("SELECT mikrotik_ip FROM mikrotik_configs WHERE user_id='$my_id' LIMIT 1");
+$mikrotik_router_id = '';
+$cfg_ip_q = $conn->query("SELECT mikrotik_ip, router_id FROM mikrotik_configs WHERE user_id='$my_id' LIMIT 1");
 if ($cfg_ip_q && $cfg_ip_q->num_rows > 0) {
-    $mikrotik_ip = $cfg_ip_q->fetch_assoc()['mikrotik_ip'] ?? '';
+    $cfg_row = $cfg_ip_q->fetch_assoc();
+    $mikrotik_ip        = $cfg_row['mikrotik_ip'] ?? '';
+    $mikrotik_router_id = $cfg_row['router_id'] ?? '';
 }
 
 // ── LAST SEEN ──
@@ -458,6 +461,9 @@ code{font-family:'Space Mono',monospace;font-size:11px;color:var(--accent2);back
             <a href="malipo_status.php"><div class="nav-icon"><i class="fa-solid fa-money-bill-transfer"></i></div>Hali za Malipo</a>
         </li>
         <li>
+            <a href="mikrotik_setup.php"><div class="nav-icon"><i class="fa-solid fa-router"></i></div>MikroTik Setup</a>
+        </li>
+        <li>
             <a href="logout.php" class="logout-link"><div class="nav-icon"><i class="fa-solid fa-right-from-bracket"></i></div>Logout</a>
         </li>
     </ul>
@@ -717,8 +723,20 @@ code{font-family:'Space Mono',monospace;font-size:11px;color:var(--accent2);back
                     <div class="panel-title"><h3><i class="fa-solid fa-server"></i> Hali ya Mfumo</h3></div>
                     <ul class="status-list">
                         <li class="status-item">
-                            <span class="status-label"><i class="fa-solid fa-circle" style="color:<?php echo $mikrotik_online?'var(--accent)':'var(--accent3)'; ?>;font-size:8px;"></i> MikroTik</span>
-                            <span class="<?php echo $mikrotik_online?'val-ok':'val-bad'; ?>"><?php echo $mikrotik_online?'ONLINE':'OFFLINE'; ?></span>
+                            <span class="status-label"><i class="fa-solid fa-circle" style="color:<?php echo empty($mikrotik_ip) ? 'var(--text-dim)' : ($mikrotik_online?'var(--accent)':'var(--accent3)'); ?>;font-size:8px;"></i> MikroTik</span>
+                            <?php if (empty($mikrotik_ip)): ?>
+                                <span style="color:var(--text-dim);font-size:11px;font-weight:600;" title="Nenda Mipangilio kusajili router yako">HAJASAJILIWA</span>
+                            <?php else: ?>
+                                <span class="<?php echo $mikrotik_online?'val-ok':'val-bad'; ?>"><?php echo $mikrotik_online?'ONLINE':'OFFLINE'; ?></span>
+                            <?php endif; ?>
+                        </li>
+                        <li class="status-item">
+                            <span class="status-label"><i class="fa-solid fa-hashtag"></i> Router ID</span>
+                            <?php if ($mikrotik_router_id !== '' && $mikrotik_router_id !== null): ?>
+                                <span class="val-num" style="cursor:pointer;" title="Bofya kunakili" onclick="nakiliRouterId('<?php echo htmlspecialchars($mikrotik_router_id, ENT_QUOTES); ?>')"><?php echo htmlspecialchars($mikrotik_router_id); ?> <i class="fa-regular fa-copy" style="font-size:10px;opacity:0.6;"></i></span>
+                            <?php else: ?>
+                                <span style="color:var(--text-dim);font-size:11px;font-weight:600;">HAJASAJILIWA</span>
+                            <?php endif; ?>
                         </li>
                         <li class="status-item">
                             <span class="status-label"><i class="fa-solid fa-database"></i> Database</span>
@@ -1391,6 +1409,11 @@ function showToast(msg, type='success') {
     t.innerHTML=`<i class="fa-solid ${icons[type]||'fa-circle-info'} ti"></i><span>${msg}</span>`;
     c.appendChild(t);
     setTimeout(()=>{t.style.animation='toastOut 0.4s ease forwards';setTimeout(()=>t.remove(),400);},6000);
+}
+
+// ══ NAKILI ROUTER ID ══
+function nakiliRouterId(routerId) {
+    navigator.clipboard.writeText(routerId).then(()=>showToast('Router ID imenakiliwa! 📋','info'));
 }
 
 // ══ SECTIONS ══

@@ -4,6 +4,21 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Tech 5G Wi-Fi — Inaunganisha...</title>
+
+<!--
+  MUHIMU KUHUSU MSTARI HUU:
+  MikroTik inabadilisha $(mac), $(ip), $(link-login-only), $(identity), $(error)
+  KILA MAHALI kwenye faili hii - siyo tu ndani ya <script>. Kwa hiyo tunaweza
+  kuunda meta-refresh HAPA moja kwa moja, bila kutegemea JavaScript kabisa.
+  Hii ndiyo njia inayoaminika zaidi kwa iPhone (Captive Network Assistant),
+  ambayo mara جانتے haiitekelezi window.location.href vizuri.
+
+  Badilisha router_id=2 hapa chini endapo unapandisha faili hii kwenye
+  router NYINGINE yenye router_id tofauti kwenye database yako.
+-->
+<!-- Mabadiliko: URL imebadilishwa kutoka IP ya ndani kwenda link rasmi ya tech5g.co.tz -->
+<meta http-equiv="refresh" content="15;url=https://www.tech5g.co.tz/index_backup.php?router_id=2&mac=$(mac)&ip=$(ip)&link_login=$(link-login-only)&link_orig=$(link-orig-esc)&router=$(identity)&error=$(error)">
+
 <style>
   :root{
     --bg-deep:   #07151c;
@@ -23,6 +38,7 @@
     display:flex;
     align-items:center;
     justify-content:center;
+    background-color: var(--bg-deep);
     background-image: url(zanzibar.jpg);
     background-size: cover;
     background-position: center;
@@ -44,7 +60,6 @@
     box-shadow: 0 20px 60px rgba(0,0,0,0.45);
   }
 
-  /* ---- Brand mark ---- */
   .brand{
     display:flex;
     flex-direction:column;
@@ -65,7 +80,6 @@
     color: var(--text-lo);
   }
 
-  /* ---- Signature element: real Wi-Fi icon (arcs + dot), arcs lighting up in sequence ---- */
   .wifi-logo{
     width: 64px;
     height: 64px;
@@ -112,7 +126,6 @@
     line-height: 1.5;
   }
 
-  /* ---- Circular loading ring (like Play Store download) ---- */
   .ring-wrap{
     display:flex;
     justify-content:center;
@@ -149,6 +162,43 @@
     color: #ff8a8a;
     display: none;
   }
+
+  .manual-link{
+    display: inline-block;
+    margin-top: 22px;
+    width: 100%;
+    padding: 13px 18px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--bg-deep);
+    background: var(--cyan);
+    border-radius: 10px;
+    text-decoration: none;
+    letter-spacing: 0.3px;
+    box-shadow: 0 8px 20px rgba(24,231,211,0.25);
+  }
+  .manual-link:active{
+    background: var(--cyan-dim);
+    color: var(--text-hi);
+  }
+
+  .trial-link{
+    display: inline-block;
+    margin-top: 12px;
+    width: 100%;
+    padding: 12px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--cyan);
+    background: transparent;
+    border: 1px solid var(--cyan-dim);
+    border-radius: 10px;
+    text-decoration: none;
+    letter-spacing: 0.3px;
+  }
+  .trial-link:active{
+    background: rgba(24,231,211,0.08);
+  }
 </style>
 </head>
 <body>
@@ -175,51 +225,44 @@
     <div class="ring"></div>
   </div>
 
-  <div class="router-tag" id="routerTag">Router: <b>—</b></div>
-  <div class="error-msg" id="errorMsg"></div>
+  <div class="router-tag" id="routerTag">Router: <b>$(identity)</b></div>
+  <div class="error-msg" id="errorMsg">$(error)</div>
+
+  <!-- Mabadiliko: href hapa chini sasa inapeleka kwenye link rasmi ya tech5g.co.tz[cite: 1] -->
+  <a class="manual-link"
+     href="https://www.tech5g.co.tz/index_backup.php?router_id=2&mac=$(mac)&ip=$(ip)&link_login=$(link-login-only)&link_orig=$(link-orig-esc)&router=$(identity)&error=$(error)">
+     Bofya hapa kama haujaelekezwa kiotomatiki
+  </a>
 </div>
 
 <script>
-  // 1. Taarifa kutoka MikroTik (variables za mfumo)
   var macAddress      = "$(mac)";
   var ipAddress        = "$(ip)";
   var linkLoginOnly    = "$(link-login-only)";
+  var linkOrig         = "$(link-orig-esc)";
   var routerIdentity   = "$(identity)";
   var errorUjumbe      = "$(error)";
+  var routerID         = "2";
 
-  // Router ID: namba ya router HII kwenye mfumo (mikrotik_configs.router_id).
-  // Inaonyeshwa kwenye Admin Dashboard mara tu router inapohifadhiwa
-  // ("Router ID: X"). KILA router ina namba yake - ukipandisha login.html
-  // hii kwenye router nyingine, LAZIMA ubadilishe namba hii kwanza.
-  var routerID = "2";
-
-  // Onyesha jina la router kwenye ukurasa
-  var tag = document.getElementById('routerTag');
-  if (routerIdentity && routerIdentity !== "") {
-    tag.innerHTML = "Router: <b>" + routerIdentity + "</b>";
-  }
-
-  // Onyesha error ikiwa MikroTik imerudisha moja
-  if (errorUjumbe && errorUjumbe !== "") {
-    var em = document.getElementById('errorMsg');
+  var em = document.getElementById('errorMsg');
+  if (!errorUjumbe || errorUjumbe === "") {
+    em.style.display = "none";
+  } else {
     em.style.display = "block";
-    em.textContent = errorUjumbe;
   }
 
-  // 2. URL ya UMMA ya seva (production). Inafanana na APP_BASE_URL kwenye config.php.
-  //    Hakikisha domain hii imeruhusiwa kwenye walled-garden ya router hii.
-var serverPHPUrl = "https://www.tech5g.co.tz/index_backup.php";
+  // URL ya UMMA ya seva (production)
+  var serverPHPUrl = "https://www.tech5g.co.tz/index_backup.php";
 
-  // 3. Tunatengeneza link ya redirect yenye taarifa zote muhimu za mteja
   var redirectUrl = serverPHPUrl +
                     "?router_id=" + encodeURIComponent(routerID) +
                     "&mac=" + encodeURIComponent(macAddress) +
                     "&ip=" + encodeURIComponent(ipAddress) +
                     "&link_login=" + encodeURIComponent(linkLoginOnly) +
+                    "&link_orig=" + encodeURIComponent(linkOrig) +
                     "&router=" + encodeURIComponent(routerIdentity) +
                     "&error=" + encodeURIComponent(errorUjumbe);
 
-  // 4. Subiri sekunde kidogo ili animation ionekane vizuri, kisha mpeleke mteja kwenye PC ya XAMPP
   setTimeout(function () {
     window.location.href = redirectUrl;
   }, 900);
