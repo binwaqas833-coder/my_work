@@ -156,11 +156,18 @@ set time-zone-autodetect=no time-zone-name=Africa/Dar_es_Salaam
 add dst-host=*.azampay.co.tz
 add dst-host=checkout.azampay.co.tz
 
-# ---- 11. Walled Garden IP - Server yako ya PHP (MUHIMU!) ----
-# Hii ndiyo IP ya kompyuta/server inayoendesha XAMPP/PHP yako.
-# Bila hii, wateja hawawezi kufikia index_backup.php kabla ya login.
+# ---- 10b. Walled Garden - Server yetu ya Tech5G (MUHIMU!) ----
+# login.html inamhamishia mteja kwenda https://tech5g.co.tz/index_backup.php
+# KABLA hajalogin. Bila hizi mbili, redirect hiyo itazuiliwa na hotspot
+# na mteja ataona ukurasa mtupu / "connection failed".
+add dst-host=tech5g.co.tz
+add dst-host=*.tech5g.co.tz
+
+# ---- 11. Walled Garden IP - Server yetu ya umma (VPS) ----
+# Nyongeza ya usalama: hata kama DNS ikichelewa kujibu, IP hii inaruhusiwa
+# moja kwa moja. Hii ndiyo IP ya umma ya tech5g.co.tz.
 /ip hotspot walled-garden ip
-add dst-address=<<< IP YA SERVER YAKO YA PHP >>> comment="Tech5G PHP backend access"
+add dst-address=107.161.168.192 comment="Tech5G PHP backend access"
 
 # ---- 12. Hotspot User Profiles (lazima yalingane na ENUM package_type) ----
 /ip hotspot user profile
