@@ -37,8 +37,17 @@ if (isset($_SESSION['user_id'])) {
         .links span { cursor: pointer; }
         .hidden { display: none; }
         .toggle-password { position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; width: 20px; height: 20px; fill: #fff; }
- 
-       .footer{bottom: 4px;text-align:center;padding:20px;font-size:11px;color:rgba(255,255,255,0.35);right: 0;left: 0;  z-index: 5;position: fixed;font-family:'Space Mono',monospace}
+        .footer {
+            position: fixed;
+            bottom: 14px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            color: rgba(255,255,255,0.65);
+            font-size: 12px;
+            z-index: 5;
+            padding: 0 16px;
+        }
 
 /* Inaficha jicho la kivinjari (Browser Native Password Toggle) */
 input::-ms-reveal,
@@ -165,6 +174,11 @@ input::-webkit-credentials-auto-fill-button {
         input.type = "password";
         iconElement.style.fill = "#fff"; // Rangi ikiwa imefungwa
     }
+}
+
+// Kama mtu amekuja kutoka welcome.php na link ya #signup, fungua fomu ya Signup moja kwa moja
+if (window.location.hash === '#signup') {
+    showForm('signupForm');
 }
 </script>
 

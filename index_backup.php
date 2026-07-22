@@ -304,6 +304,37 @@ if (isset($conn)) {
 
         .btn-malipo:hover { background-color: var(--brand-dark); }
 
+        /* ---- LOGO ZINAZOTEMBEA (mitandao ya pesa za simu) ---- */
+        .logo-za-simu {
+            overflow: hidden;
+            padding: 15px 0;
+            width: 100%;
+            margin-top: 15px;
+            margin-bottom: 25px;
+            border-top: 1px dashed rgba(0,0,0,0.15);
+            border-bottom: 1px dashed rgba(0,0,0,0.15);
+            background: transparent;
+        }
+
+        .logo-slide {
+            display: flex;
+            width: fit-content;
+            animation: tembeaLogo 15s linear infinite;
+            will-change: transform;
+        }
+
+        .logo-slide img {
+            height: 35px;
+            width: auto;
+            margin: 0 30px;
+            flex-shrink: 0;
+        }
+
+        @keyframes tembeaLogo {
+            from { transform: translateX(0); }
+            to { transform: translateX(-50%); }
+        }
+
         /* ---- SEHEMU YA VOCHA ---- */
         .sehemu-vocha { margin-top: 15px; border-top: 1px dashed rgba(0,0,0,0.12); padding-top: 10px; }
         .input-vocha-container { display: flex; gap: 8px; margin-top: 6px; }
@@ -368,6 +399,7 @@ if (isset($conn)) {
             .main-wrapper { padding: 18px; width: 95%; }
             .input-vocha-container { flex-direction: column; }
             .btn-unganisha { width: 100%; padding: 12px; margin-top: 4px; }
+            .logo-slide img { height: 26px; margin: 0 15px; }
         }
     </style>
 </head>
@@ -443,6 +475,20 @@ if (isset($conn)) {
                 </button>
             </div>
         </form>
+
+        <!-- LOGO ZA MITANDAO YA PESA ZA SIMU -->
+        <section class="logo-za-simu">
+            <div class="logo-slide">
+                <img src="mixx.PNG" alt="Mixx-by-Yas">
+                <img src="halopesa.png" alt="halopesa">
+                <img src="Airtel-Money.png" alt="Airtel-Money">
+                <img src="m-pesa.png" alt="M-pesa">
+                <img src="mixx.PNG" alt="Mixx-by-Yas">
+                <img src="halopesa.png" alt="halopesa">
+                <img src="Airtel-Money.png" alt="Airtel-Money">
+                <img src="m-pesa.png" alt="M-pesa">
+            </div>
+        </section>
 
         <!-- MPANGO WA 2: TAYARI UNA VOCHA -->
         <div class="sehemu-vocha">

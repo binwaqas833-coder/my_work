@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="sw">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tech 5G Wi-Fi — Umeunganishwa</title>
+<style>
+  :root{
+    --bg-deep:   #07151c;
+    --bg-panel:  #0d2230;
+    --line:      rgba(255,255,255,0.08);
+    --cyan:      #18e7d3;
+    --cyan-dim:  #0c8c80;
+    --text-hi:   #eaf6f5;
+    --text-lo:   #8aa3a8;
+    --warn:      #ff8a8a;
+  }
+  *{ box-sizing:border-box; }
+  body{
+    margin:0; min-height:100vh; display:flex; align-items:center;
+    justify-content:center; background-color: var(--bg-deep);
+    font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+    color: var(--text-hi); padding: 24px;
+  }
+  .card{
+    width: 100%; max-width: 380px; background: var(--bg-panel);
+    border: 1px solid var(--line); border-radius: 18px;
+    padding: 34px 26px; text-align: center;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+  }
+  .brand-name{ font-size: 18px; font-weight: 700; margin-bottom: 22px; }
+  .brand-name span{ color: var(--cyan); }
+
+  .timer{ font-size: 40px; font-weight: 700; letter-spacing: 1px;
+          color: var(--cyan); margin: 10px 0 6px; }
+  .timer.low{ color: var(--warn); }
+  .timer-label{ font-size: 12px; color: var(--text-lo);
+                text-transform: uppercase; letter-spacing: 1.5px; }
+
+  .expired-msg{ display:none; margin-top: 18px; }
+  .expired-msg h2{ font-size: 16px; color: var(--warn); margin: 0 0 8px; }
+  .expired-msg p{ font-size: 13px; color: var(--text-lo); margin: 0; }
+
+  .btn{
+    display:inline-block; margin-top: 20px; width: 100%; padding: 13px;
+    font-size: 13.5px; font-weight: 600; color: var(--bg-deep);
+    background: var(--cyan); border-radius: 10px; text-decoration: none;
+  }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="brand-name">Tech <span>5G</span> Wi-Fi</div>
+
+  <!-- Sehemu hii inaonekana wakati intaneti bado inaendelea -->
+  <div id="activeView">
+    <div class="timer-label">Muda uliobaki</div>
+    <div class="timer" id="timerDisplay">--:--</div>
+    <div class="timer-label" id="userLabel">$(username)</div>
+  </div>
+
+  <!-- Sehemu hii inaonekana muda ukiisha -->
+  <div class="expired-msg" id="expiredView">
+    <h2>⏱ Muda wako wa bure umekwisha</h2>
+    <p>Ahsante kwa kujaribu Tech 5G Wi-Fi! Chagua kifurushi ili uendelee kutumia intaneti bila kikomo.</p>
+    <a class="btn" id="buyBtn" href="#">Nunua Kifurushi Sasa</a>
+  </div>
+</div>
+
+<script>
+  // MikroTik inatoa sekunde zilizobaki za session moja kwa moja
+  var secondsLeft = parseInt("$(session-time-left-raw)", 10);
+  if (isNaN(secondsLeft)) { secondsLeft = 0; }
+
+  // Endapo mtumiaji SI wa trial (session-time-left-raw haipo/ni 0
+  // kwa vifurushi vya kawaida vyenye muda mrefu), usionyeshe countdown
+  // ya kutisha - onyesha tu status ya kawaida.
+  var isTrialLike = secondsLeft > 0 && secondsLeft <= 3600; // <= saa 1
+
+  var display   = document.getElementById('timerDisplay');
+  var activeV   = document.getElementById('activeView');
+  var expiredV  = document.getElementById('expiredView');
+  var buyBtn    = document.getElementById('buyBtn');
+
+  // Link ya kurudi kwenye ukurasa wa kuchagua kifurushi baada ya
+  // trial kuisha - inatumia parameter sawa na login.html/index_backup.php
+  var redirectUrl = "http://192.168.20.253/my_work/index_backup.php" +
+      "?router_id=2" +
+      "&mac=" + encodeURIComponent("$(mac-esc)") +
+      "&ip=" + encodeURIComponent("$(ip)") +
+      "&link_login=" + encodeURIComponent("$(link-login-only)") +
+      "&router=" + encodeURIComponent("$(identity)") +
+      "&trial_expired=1";
+  buyBtn.href = redirectUrl;
+
+  function formatTime(s){
+    var m = Math.floor(s / 60);
+    var sec = s % 60;
+    return (m < 10 ? "0" : "") + m + ":" + (sec < 10 ? "0" : "") + sec;
+  }
+
+  function showExpired(){
+    activeV.style.display = "none";
+    expiredV.style.display = "block";
+    // Baada ya sekunde 3 za kumuonyesha ujumbe, mpeleke moja kwa moja
+    setTimeout(function(){ window.location.href = redirectUrl; }, 3000);
+  }
+
+  if (!isTrialLike || secondsLeft <= 0) {
+    // Muda tayari umekwisha (au huu si trial - onyesha tu status
+    // ya kawaida bila kutisha; ukitaka countdown ionekane kwa
+    // vifurushi vyote, ondoa hiki "if" na uache countdown ionekane
+    // kila wakati).
+    if (secondsLeft <= 0) { showExpired(); }
+    else { display.textContent = "Umeunganishwa"; }
+  } else {
+    display.textContent = formatTime(secondsLeft);
+    var interval = setInterval(function(){
+      secondsLeft--;
+      if (secondsLeft <= 10) { display.classList.add('low'); }
+      if (secondsLeft <= 0) {
+        clearInterval(interval);
+        showExpired();
+      } else {
+        display.textContent = formatTime(secondsLeft);
+      }
+    }, 1000);
+  }
+</script>
+
+</body>
+</html>
