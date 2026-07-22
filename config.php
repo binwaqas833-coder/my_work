@@ -29,7 +29,7 @@ define('DB_NAME', getenv('DB_NAME') ?: 'login_signup');
 // ku-override kila wakati kwa environment variable APP_BASE_URL.
 define('APP_BASE_URL', rtrim(
     getenv('APP_BASE_URL') ?: (APP_ENV === 'production'
-        ? 'https://www.tech5g.co.tz'
+        ? 'https://tech5g.co.tz'
         : 'http://localhost/my_work'),
     '/'
 ));
