@@ -58,20 +58,17 @@ if ($API->connect($mikrotik_ip, $api_user, $api_pass)) {
     $user_e = $conn->real_escape_string($api_user);
     $pass_e = $conn->real_escape_string($api_pass_store);
 
-    // id=LAST_INSERT_ID(id) inafanya insert_id irudishe id ya row hii hata kwenye UPDATE.
+    // router_id ndiyo PRIMARY KEY (AUTO_INCREMENT) ya jedwali, na ndiyo namba
+    // inayowekwa kwenye login.html (var routerID) ya router husika.
+    // LAST_INSERT_ID(router_id) hufanya insert_id irudishe router_id hata kwenye
+    // UPDATE (pale router ya user huyu tayari ipo — user_id ni UNIQUE KEY).
     $sql = "INSERT INTO mikrotik_configs (user_id, mikrotik_ip, api_user, api_pass)
             VALUES ('$user_id', '$ip_e', '$user_e', '$pass_e')
             ON DUPLICATE KEY UPDATE
-            id=LAST_INSERT_ID(id), mikrotik_ip='$ip_e', api_user='$user_e', api_pass='$pass_e'";
+            router_id=LAST_INSERT_ID(router_id), mikrotik_ip='$ip_e', api_user='$user_e', api_pass='$pass_e'";
 
     if ($conn->query($sql) === TRUE) {
-        $row_id = (int)$conn->insert_id;
-
-        // Mpe router hii router_id yake kama bado haina. router_id ndiyo namba
-        // inayoandikwa kwenye login.html (var routerID) ya router husika.
-        $conn->query("UPDATE mikrotik_configs SET router_id = id WHERE id = $row_id AND (router_id IS NULL OR router_id = 0)");
-        $rid_row   = $conn->query("SELECT router_id FROM mikrotik_configs WHERE id = $row_id")->fetch_assoc();
-        $router_id = (int)($rid_row['router_id'] ?? 0);
+        $router_id = (int)$conn->insert_id;
 
         $_SESSION['toast'] = [
             'type' => 'success',
