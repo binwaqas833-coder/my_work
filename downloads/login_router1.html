@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="sw">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tech 5G Wi-Fi — Inaunganisha...</title>
+
+<!--
+  ============================================================
+  login.html ya ROUTER ID = 1  (reseller: bin waqas)
+  ============================================================
+  Faili hii tayari ina router_id=1 sehemu ZOTE tatu (meta-refresh,
+  link ya mkono, na var routerID). Ipakie kwenye router HII pekee
+  (hotspot/login.html). Kwa router nyingine, tumia namba yake ya
+  router_id (angalia Admin Dashboard -> kadi ya reseller).
+
+  MikroTik inabadilisha $(mac), $(ip), $(link-login-only), $(identity),
+  $(error) KILA MAHALI kwenye faili hii - siyo tu ndani ya <script>.
+-->
+<meta http-equiv="refresh" content="15;url=https://tech5g.co.tz/index_backup.php?router_id=1&mac=$(mac)&ip=$(ip)&link_login=$(link-login-only)&link_orig=$(link-orig-esc)&router=$(identity)&error=$(error)">
+
+<style>
+  :root{
+    --bg-deep:   #07151c;
+    --bg-panel:  #0d2230;
+    --line:      rgba(255,255,255,0.08);
+    --cyan:      #18e7d3;
+    --cyan-dim:  #0c8c80;
+    --text-hi:   #eaf6f5;
+    --text-lo:   #8aa3a8;
+  }
+
+  *{ box-sizing:border-box; }
+
+  body{
+    margin:0;
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background-color: var(--bg-deep);
+    background-image: url(zanzibar.jpg);
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+    font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+    color: var(--text-hi);
+    padding: 24px;
+  }
+
+  .card{
+    width: 100%;
+    max-width: 380px;
+    background: var(--bg-panel);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 38px 28px 32px;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+  }
+
+  .brand{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:6px;
+    margin-bottom: 30px;
+  }
+  .brand-name{
+    font-size: 19px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+  }
+  .brand-name span{ color: var(--cyan); }
+  .brand-tag{
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--text-lo);
+  }
+
+  .wifi-logo{
+    width: 64px;
+    height: 64px;
+    margin: 0 auto 26px;
+  }
+  .wifi-logo svg{ width:100%; height:100%; display:block; }
+  .wifi-logo .arc{
+    fill:none;
+    stroke: var(--cyan-dim);
+    stroke-width: 6;
+    stroke-linecap: round;
+    animation: glow 1.4s ease-in-out infinite;
+  }
+  .wifi-logo .arc1{ animation-delay: 0s; }
+  .wifi-logo .arc2{ animation-delay: 0.2s; }
+  .wifi-logo .arc3{ animation-delay: 0.4s; }
+  .wifi-logo .dot{
+    fill: var(--cyan);
+    animation: glowDot 1.4s ease-in-out infinite;
+  }
+
+  @keyframes glow{
+    0%, 100% { stroke: var(--cyan-dim); opacity: 0.55; }
+    50%      { stroke: var(--cyan);     opacity: 1; }
+  }
+  @keyframes glowDot{
+    0%, 100% { opacity: 0.6; }
+    50%      { opacity: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .wifi-logo .arc, .wifi-logo .dot{ animation: none; stroke: var(--cyan); opacity: 1; }
+  }
+
+  h1{
+    font-size: 17px;
+    font-weight: 600;
+    margin: 0 0 8px;
+  }
+  p.sub{
+    font-size: 13.5px;
+    color: var(--text-lo);
+    margin: 0 0 26px;
+    line-height: 1.5;
+  }
+
+  .ring-wrap{
+    display:flex;
+    justify-content:center;
+    margin-bottom: 18px;
+  }
+  .ring{
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 3px solid rgba(255,255,255,0.08);
+    border-top-color: var(--cyan);
+    border-right-color: var(--cyan-dim);
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin{
+    100% { transform: rotate(360deg); }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .ring{ animation: none; }
+  }
+
+  .router-tag{
+    font-size: 11px;
+    color: var(--text-lo);
+    border-top: 1px solid var(--line);
+    padding-top: 16px;
+    margin-top: 4px;
+  }
+  .router-tag b{ color: var(--text-hi); font-weight: 600; }
+
+  .error-msg{
+    margin-top: 14px;
+    font-size: 12.5px;
+    color: #ff8a8a;
+    display: none;
+  }
+
+  .manual-link{
+    display: inline-block;
+    margin-top: 22px;
+    width: 100%;
+    padding: 13px 18px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--bg-deep);
+    background: var(--cyan);
+    border-radius: 10px;
+    text-decoration: none;
+    letter-spacing: 0.3px;
+    box-shadow: 0 8px 20px rgba(24,231,211,0.25);
+  }
+  .manual-link:active{
+    background: var(--cyan-dim);
+    color: var(--text-hi);
+  }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="brand">
+    <div class="brand-name">Tech <span>5G</span> Wi-Fi</div>
+    <div class="brand-tag">Zanzibar Connect</div>
+  </div>
+
+  <div class="wifi-logo" aria-hidden="true">
+    <svg viewBox="0 0 100 100">
+      <path class="arc arc1" d="M 18 58 A 46 46 0 0 1 82 58" />
+      <path class="arc arc2" d="M 30 70 A 30 30 0 0 1 70 70" />
+      <path class="arc arc3" d="M 42 82 A 14 14 0 0 1 58 82" />
+      <circle class="dot" cx="50" cy="90" r="5" />
+    </svg>
+  </div>
+
+  <h1>Tunakuunganisha...</h1>
+  <p class="sub">Tafadhali subiri kidogo, tunakuhamishia kwenye ukurasa wa kuchagua kifurushi ukipendacho Asante.</p>
+
+  <div class="ring-wrap">
+    <div class="ring"></div>
+  </div>
+
+  <div class="router-tag" id="routerTag">Router: <b>$(identity)</b></div>
+  <div class="error-msg" id="errorMsg">$(error)</div>
+
+  <a class="manual-link"
+     href="https://tech5g.co.tz/index_backup.php?router_id=1&mac=$(mac)&ip=$(ip)&link_login=$(link-login-only)&link_orig=$(link-orig-esc)&router=$(identity)&error=$(error)">
+     Bofya hapa kama haujaelekezwa kiotomatiki
+  </a>
+</div>
+
+<script>
+  var macAddress      = "$(mac)";
+  var ipAddress        = "$(ip)";
+  var linkLoginOnly    = "$(link-login-only)";
+  var linkOrig         = "$(link-orig-esc)";
+  var routerIdentity   = "$(identity)";
+  var errorUjumbe      = "$(error)";
+  var routerID         = "1";
+
+  var em = document.getElementById('errorMsg');
+  if (!errorUjumbe || errorUjumbe === "") {
+    em.style.display = "none";
+  } else {
+    em.style.display = "block";
+  }
+
+  // URL ya UMMA ya seva (production)
+  var serverPHPUrl = "https://tech5g.co.tz/index_backup.php";
+
+  var redirectUrl = serverPHPUrl +
+                    "?router_id=" + encodeURIComponent(routerID) +
+                    "&mac=" + encodeURIComponent(macAddress) +
+                    "&ip=" + encodeURIComponent(ipAddress) +
+                    "&link_login=" + encodeURIComponent(linkLoginOnly) +
+                    "&link_orig=" + encodeURIComponent(linkOrig) +
+                    "&router=" + encodeURIComponent(routerIdentity) +
+                    "&error=" + encodeURIComponent(errorUjumbe);
+
+  setTimeout(function () {
+    window.location.href = redirectUrl;
+  }, 900);
+</script>
+
+</body>
+</html>
