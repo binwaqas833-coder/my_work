@@ -23,6 +23,9 @@ if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity']) >
 }
 
 // 3. SASISHA MUDA WA MWISHO WA SHUGHULI
-$_SESSION['last_activity'] = time(); 
-?>
+$_SESSION['last_activity'] = time();
 
+// MUHIMU: hakuna closing tag "?>" wala nafasi/mstari mtupu chini yake.
+// Trailing whitespace hutuma output mapema, na kusababisha "headers already
+// sent" -> header("Location: ...") kwenye save_mikrotik.php n.k. inashindwa
+// (ukurasa unakuwa mtupu/blank badala ya ku-redirect na kuonyesha toast).

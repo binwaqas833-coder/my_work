@@ -8,4 +8,4 @@ if (!$conn) {
         ? 'Samahani, tatizo la muunganisho la muda. Tafadhali jaribu tena baadaye.'
         : ('Connection failed: ' . mysqli_connect_error()));
 }
-?>
+// Hakuna closing tag "?>" — kuepuka trailing whitespace inayovunja header()/redirect.
