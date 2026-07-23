@@ -8,7 +8,45 @@
  * ---------------------------------------------------------
  */
 session_start();
-include 'auth_check.php'; // hakikisha reseller amelogin kabla ya kuona ukurasa huu
+include 'auth_check.php';     // hakikisha reseller amelogin kabla ya kuona ukurasa huu
+include 'login_signup.php';   // inaleta config.php + $conn (tunahitaji router_id yake)
+
+// ── Router ID ya mtumiaji aliye-login ──
+// login.html na status.html HAZIFANYI kazi bila router_id sahihi: ndiyo namba
+// inayoambia index_backup.php vifurushi vya reseller yupi vionyeshwe. Badala ya
+// kumwambia reseller abadilishe namba kwa mkono (kosa lililotokea mara nyingi),
+// tunaiweka wenyewe wakati wa kupakua.
+$user_id   = (int)($_SESSION['user_id'] ?? 0);
+$router_id = 0;
+
+if ($st = $conn->prepare("SELECT router_id FROM mikrotik_configs WHERE user_id = ? LIMIT 1")) {
+    $st->bind_param('i', $user_id);
+    $st->execute();
+    $st->bind_result($router_id_db);
+    if ($st->fetch()) { $router_id = (int)$router_id_db; }
+    $st->close();
+} else {
+    error_log('mikrotik_setup prepare error: ' . $conn->error);
+}
+
+// Admin anaweza kupakua faili ya router yoyote kwa ?rid=N (anapo-onboard reseller mpya).
+$ni_admin = (($_SESSION['role'] ?? '') === 'admin');
+if ($ni_admin && isset($_GET['rid']) && (int)$_GET['rid'] > 0) {
+    $router_id = (int)$_GET['rid'];
+}
+
+/**
+ * tech5g_weka_router_id() — badilisha router_id yote ndani ya login.html/status.html
+ * ilingane na router husika. Sehemu zinazoguswa:
+ *   - meta-refresh na manual-link : "...index_backup.php?router_id=1&mac=..."
+ *   - JavaScript                  : var routerID = "1";
+ */
+function tech5g_weka_router_id($maudhui, $router_id) {
+    $rid = (int)$router_id;
+    $maudhui = preg_replace('/(router_id=)\d+/', '${1}' . $rid, $maudhui);
+    $maudhui = preg_replace('/(var\s+routerID\s*=\s*")\d+(")/', '${1}' . $rid . '${2}', $maudhui);
+    return $maudhui;
+}
 
 // ── Faili zinazoruhusiwa kupakuliwa (WHITELIST - usalama) ──
 // Hii inazuia mtu kujaribu kupakua faili nyingine yoyote kwenye
@@ -31,12 +69,14 @@ $faili_zinazoruhusiwa = [
         'path' => __DIR__ . '/login.html',
         'maelezo' => 'Ukurasa wa Login wa Hotspot - pakua kisha upande kwenye Files za MikroTik.',
         'icon' => 'fa-right-to-bracket',
+        'binafsisha' => true,   // router_id huwekwa kiotomatiki wakati wa kupakua
     ],
     'status' => [
         'jina_kwa_mtumiaji' => 'status.html',
         'path' => __DIR__ . '/status.html',
         'maelezo' => 'Ukurasa wa Status ya Hotspot unaomuonyesha mteja muda uliobaki.',
         'icon' => 'fa-circle-info',
+        'binafsisha' => true,
     ],
     'zanzibar' => [
         'jina_kwa_mtumiaji' => 'zanzibar.jpg',
@@ -56,8 +96,24 @@ if (isset($_GET['pakua']) && array_key_exists($_GET['pakua'], $faili_zinazoruhus
     header('Content-Description: File Transfer');
     header('Content-Type: application/octet-stream');
     header('Content-Disposition: attachment; filename="' . $f['jina_kwa_mtumiaji'] . '"');
-    header('Content-Length: ' . filesize($f['path']));
     header('Cache-Control: no-cache, must-revalidate');
+
+    // Faili za hotspot (login/status) hupewa router_id ya reseller huyu kabla
+    // ya kutumwa. Bila router iliyosajiliwa hatuwezi kujua namba - tunakataa
+    // kupakua badala ya kumpa faili yenye namba ya router ya mtu mwingine.
+    if (!empty($f['binafsisha'])) {
+        if ($router_id <= 0) {
+            http_response_code(409);
+            die('Router yako bado haijasajiliwa. Msimamizi lazima ahifadhi IP na API '
+              . 'ya router yako kwanza, ndipo faili hii ipatikane na Router ID sahihi.');
+        }
+        $maudhui = tech5g_weka_router_id(file_get_contents($f['path']), $router_id);
+        header('Content-Length: ' . strlen($maudhui));
+        echo $maudhui;
+        exit();
+    }
+
+    header('Content-Length: ' . filesize($f['path']));
     readfile($f['path']);
     exit();
 }
@@ -90,6 +146,13 @@ if (isset($_GET['pakua']) && array_key_exists($_GET['pakua'], $faili_zinazoruhus
   .card .info h3{font-size:15px;margin-bottom:4px;}
   .card .info p{font-size:12.5px;color:#8aa3a8;margin:0;}
   .btn{background:#18e7d3;color:#07151c;padding:10px 18px;border-radius:9px;text-decoration:none;font-weight:600;font-size:13px;white-space:nowrap;}
+  .btn.disabled{background:rgba(255,255,255,0.12);color:rgba(255,255,255,0.45);cursor:not-allowed;}
+  .rid-note{padding:13px 16px;border-radius:10px;font-size:12.5px;line-height:1.6;margin-bottom:18px;}
+  .rid-note code{font-family:'Space Mono',monospace;font-size:11.5px;}
+  .rid-note.ok{background:rgba(24,231,211,0.08);border:1px solid rgba(24,231,211,0.30);color:#a9f5ec;}
+  .rid-note.ok b{color:#18e7d3;font-family:'Space Mono',monospace;}
+  .rid-note.warn{background:rgba(255,138,138,0.10);border:1px solid rgba(255,138,138,0.30);color:#ff8a8a;}
+  .rid-tag{display:inline-block;margin-left:6px;padding:2px 8px;border-radius:20px;background:rgba(24,231,211,0.15);color:#18e7d3;font-family:'Space Mono',monospace;font-size:10.5px;font-weight:700;vertical-align:middle;}
   .onyo{background:rgba(255,138,138,0.1);border:1px solid rgba(255,138,138,0.3);color:#ff8a8a;padding:14px 16px;border-radius:10px;font-size:12.5px;margin-top:24px;}
   .footer{text-align:center;padding:22px 0 4px;font-size:11px;color:rgba(255,255,255,0.35);font-family:'Space Mono',monospace;}
 </style>
@@ -105,14 +168,41 @@ if (isset($_GET['pakua']) && array_key_exists($_GET['pakua'], $faili_zinazoruhus
 <h1>📥 MikroTik Setup</h1>
 <p class="sub">Pakua faili hizi kabla ya kuanza kusanidi router mpya ya MikroTik.</p>
 
-<?php foreach ($faili_zinazoruhusiwa as $key => $f): ?>
+<?php if ($router_id > 0): ?>
+<div class="rid-note ok">
+  ✅ Router ID yako ni <b><?php echo $router_id; ?></b> — <code>login.html</code> na <code>status.html</code>
+  zitapakuliwa zikiwa tayari na namba hii. Huhitaji kubadilisha chochote ndani yake.
+</div>
+<?php else: ?>
+<div class="rid-note warn">
+  ⚠️ Router yako bado haijasajiliwa, hivyo <code>login.html</code> na <code>status.html</code> haziwezi
+  kupakuliwa bado. Mpe msimamizi IP ya router yako (VPN) na API user/password ili akusajili — baada ya
+  hapo faili hizi zitakuja na Router ID yako sahihi.
+</div>
+<?php endif; ?>
+
+<?php foreach ($faili_zinazoruhusiwa as $key => $f):
+    $inahitaji_router = !empty($f['binafsisha']);
+    $imezuiwa         = $inahitaji_router && $router_id <= 0;
+    $link             = '?pakua=' . urlencode($key)
+                      . (($ni_admin && $router_id > 0) ? '&rid=' . $router_id : '');
+?>
 <div class="card">
     <i class="fa-solid <?php echo $f['icon']; ?>"></i>
     <div class="info">
-        <h3><?php echo htmlspecialchars($f['jina_kwa_mtumiaji']); ?></h3>
+        <h3>
+            <?php echo htmlspecialchars($f['jina_kwa_mtumiaji']); ?>
+            <?php if ($inahitaji_router && $router_id > 0): ?>
+                <span class="rid-tag">Router ID <?php echo $router_id; ?></span>
+            <?php endif; ?>
+        </h3>
         <p><?php echo htmlspecialchars($f['maelezo']); ?></p>
     </div>
-    <a class="btn" href="?pakua=<?php echo urlencode($key); ?>"><i class="fa-solid fa-download"></i> Pakua</a>
+    <?php if ($imezuiwa): ?>
+        <span class="btn disabled" title="Sajili router kwanza"><i class="fa-solid fa-lock"></i> Imefungwa</span>
+    <?php else: ?>
+        <a class="btn" href="<?php echo $link; ?>"><i class="fa-solid fa-download"></i> Pakua</a>
+    <?php endif; ?>
 </div>
 <?php endforeach; ?>
 

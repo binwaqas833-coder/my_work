@@ -70,7 +70,8 @@ Kama unatumia `run-after-reset=tech5g_router_setup.rsc` pamoja na Hatua 0B, scri
 ## SEHEMU YA 4: Nini kimebaki kwa MKONO (haiwezekani/hapaswi kufanywa na script)
 
 1. **Kupandisha `login.html` na `status.html`** kwenye router (Files) — hizi ni faili za kompyuta yako, router haiwezi kuzitafuta yenyewe.
-   - Baada ya usajili wa Hatua 16, angalia matokeo ya terminal — yatakuambia `router_id` mpya. Hakikisha `var routerID = "X";` ndani ya `login.html` na `status.html` inalingana na hiyo NAMBA kabla ya kupandisha.
+   - **Usibadilishe `routerID` kwa mkono.** Pakua faili hizi mbili kutoka ukurasa wa **MikroTik Setup** kwenye dashboard yako (`mikrotik_setup.php`) baada ya router yako kusajiliwa — zinakuja tayari zikiwa na `router_id` yako sahihi kila mahali.
+   - Kama ukurasa unasema "Imefungwa", maana yake router yako bado haijasajiliwa (Hatua 16 / admin bado hajahifadhi IP na API).
 
 2. **Kuweka bei za `tariffs`** kwa `user_id` ya reseller husika — hii ni uamuzi wa kibiashara, siyo kitu cha kiufundi kinachoweza kuamuliwa na script.
 
@@ -91,7 +92,7 @@ Kwenye database yako ya sasa, router_id=2 ina `mikrotik_ip = 192.168.88.1` (IP y
 - [ ] Jaza `<<< >>>` ZOTE kwenye script kuu, hakikisha NAMBA ya subnet ni ya kipekee
 - [ ] Endesha script (au iiache ijiendeshe kiotomatiki baada ya 0B)
 - [ ] Soma matokeo ya terminal — nakili `router_id` mpya
-- [ ] Badilisha `routerID` ndani ya `login.html` na `status.html` kulingana na hiyo namba
+- [ ] Pakua `login.html` na `status.html` kutoka **MikroTik Setup** ya dashboard (zinakuja na `router_id` yako tayari)
 - [ ] Pandisha `login.html` na `status.html` kwenye Files (hotspot folder)
 - [ ] Weka `tariffs` kwenye database kwa `user_id` husika
 - [ ] Jaribu na `test.php`

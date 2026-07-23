@@ -13,7 +13,10 @@ On submit, the system live-tests the connection first (save_mikrotik.php:35) —
 If it connects: config saved, and a Router ID is auto-assigned (save_mikrotik.php:46-51) — the piece we fixed. The toast tells the admin the ID: "Router ID: 3 — weka namba hii kwenye login.html."
 From that moment the system can fully control the router — sell vouchers, auto-login customers, renew packages. That part is automatic.
 
-Step 3 — The one remaining manual step: put the Router ID into that router's login.html and upload it to the router's hotspot/ folder. This is how the captive portal tells your server which router a customer is standing next to.
+Step 3 — The one remaining manual step: upload login.html and status.html to the router's hotspot/ folder. This is how the captive portal tells your server which router a customer is standing next to.
+Download both from **MikroTik Setup** (mikrotik_setup.php) while logged in as that reseller — the Router ID is injected into every occurrence at download time, so there is nothing to edit by hand. The download is locked until the router is registered (step 2), which prevents shipping another reseller's Router ID.
+
+Full per-router runbook: docs/ONBOARD_ROUTER.md
 
 192.168.10.1 8728
 

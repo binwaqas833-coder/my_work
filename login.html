@@ -13,11 +13,18 @@
   Hii ndiyo njia inayoaminika zaidi kwa iPhone (Captive Network Assistant),
   ambayo mara جانتے haiitekelezi window.location.href vizuri.
 
-  Badilisha router_id=1 hapa chini endapo unapandisha faili hii kwenye
-  router NYINGINE yenye router_id tofauti kwenye database yako.
+  ROUTER ID: faili hii ni template ya router_id=1. USIIHARIRI kwa mkono kwa
+  router nyingine - pakua badala yake kupitia "MikroTik Setup" kwenye dashboard
+  (mikrotik_setup.php), ambayo huweka router_id sahihi sehemu zote tatu:
+  meta-refresh hapa chini, href ya .manual-link, na var routerID kwenye script.
 -->
 <!-- Mabadiliko: URL imebadilishwa kutoka IP ya ndani kwenda link rasmi ya tech5g.co.tz -->
-<meta http-equiv="refresh" content="15;url=https://tech5g.co.tz/index_backup.php?router_id=1&mac=$(mac)&ip=$(ip)&link_login=$(link-login-only)&link_orig=$(link-orig-esc)&router=$(identity)&error=$(error)">
+<!--
+  SEKUNDE 2, SIYO 15: Captive Network Assistant ya iPhone huwa na subira ndogo -
+  ikikaa bila kwenda popote inaonyesha ukurasa MWEUPE. JavaScript hapa chini
+  inajaribu kwanza (900ms); meta hii ni kinga endapo JS haikimbii kwenye CNA.
+-->
+<meta http-equiv="refresh" content="2;url=https://tech5g.co.tz/index_backup.php?router_id=1&mac=$(mac)&ip=$(ip)&link_login=$(link-login-only)&link_orig=$(link-orig-esc)&router=$(identity)&error=$(error)">
 
 <style>
   :root{

@@ -139,6 +139,20 @@ add dst-host=*.tech5g.co.tz
 add dst-address=107.161.168.192 comment="Tech5G backend"
 ```
 
+**Thibitisha (au rekebisha) walled-garden ya router ZOTE kwa script moja** — hii hupitia kila router
+iliyo kwenye `mikrotik_configs` kupitia API, inalinganisha na orodha rasmi (portal, cdnjs, fonts,
+WhatsApp, IP ya VPS) na kuongeza zinazokosekana tu:
+
+```bash
+ssh root@107.161.168.192
+set -a; . /root/.tech5g-credentials; set +a
+/usr/local/emps/bin/php /var/www/tech5g/walled_garden_sync.php            # dry-run: onyesha zinazokosekana
+/usr/local/emps/bin/php /var/www/tech5g/walled_garden_sync.php --apply    # tekeleza
+```
+
+> **MUHIMU:** entry ya `dst-address=107.161.168.192` (walled-garden **IP**) ndiyo inayoruhusu HTTPS
+> kufika portal. Kwa `dst-host` pekee, mteja ambaye hajalipa anaweza kuona ukurasa mtupu.
+
 ---
 
 ## 5. Dashboard — sajili reseller na router yake
@@ -153,16 +167,20 @@ add dst-address=107.161.168.192 comment="Tech5G backend"
 
 ---
 
-## 6. login.html — captive portal ya router
+## 6. login.html + status.html — captive portal ya router
 
-1. Chukua `https://tech5g.co.tz/login.html`.
-2. Badilisha **Router ID** sehemu ZOTE tatu ilingane na namba ya router hii:
-   - `<meta http-equiv="refresh" ... router_id=«ID»>`
-   - `<a class="manual-link" ... router_id=«ID»>`
-   - `var routerID = "«ID»";`
-3. Pakia kama `login.html` kwenye folda ya **hotspot** ya router (WinBox → Files → hotspot/).
+**Router ID sasa inawekwa kiotomatiki — usiihariri kwa mkono.**
 
-> Router 1 (bin waqas) tayari ina router_id=1 kwenye `login.html` iliyopo.
+1. Ingia kama reseller huyo (au kama admin) → **MikroTik Setup** (`https://tech5g.co.tz/mikrotik_setup.php`).
+2. Bofya **Pakua** kwa `login.html` na `status.html`. Faili zinatoka zikiwa na `router_id` ya reseller
+   huyo kwenye sehemu ZOTE (meta-refresh, manual-link, `var routerID`, na redirect ya trial ya `status.html`).
+3. Pakia zote mbili kwenye folda ya **hotspot** ya router (WinBox → Files → hotspot/).
+
+> - Ukurasa unaonyesha **Router ID yako** juu kabla hujapakua — thibitisha inalingana na §5.
+> - Kama router bado haijasajiliwa (§5), button inakuwa **Imefungwa** — hiyo ni kinga: bila usajili
+>   faili ingekuja na namba ya router ya mtu mwingine na wateja wangeona vifurushi visivyo vyake.
+> - Admin anaweza kupakua ya router yoyote kwa `?pakua=login&rid=«ID»`.
+> - `https://tech5g.co.tz/login.html` (bila kupitia ukurasa huo) ni template ya router 1 pekee.
 
 ---
 

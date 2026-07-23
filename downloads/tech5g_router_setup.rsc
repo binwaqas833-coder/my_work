@@ -261,11 +261,12 @@ set api port=8728 disabled=no
 #
 # 1. Pandisha login.html yako kwenye router (Files -> hotspot folder).
 #    HII PEKEE HAIWEZI KUFANYWA NA ROUTER - ni faili la kompyuta yako.
-#    Hakikisha routerID ndani ya login.html inalingana na router_id
-#    iliyotengenezwa na Hatua 16 (angalia matokeo ya "MATOKEO YA
-#    USAJILI KIOTOMATIKI" kwenye terminal).
+#    USIBADILISHE routerID kwa mkono: pakua login.html kupitia ukurasa wa
+#    "MikroTik Setup" (mikrotik_setup.php) kwenye dashboard baada ya usajili
+#    wa Hatua 16 - faili inakuja tayari na router_id sahihi sehemu zote.
 #
-# 2. Pandisha status.html vilevile (kwa ajili ya trial countdown).
+# 2. Pandisha status.html vilevile (kwa ajili ya trial countdown) - nayo
+#    pakua kutoka ukurasa huo huo ili router_id yake iwe sahihi.
 #
 # 3. Weka bei za `tariffs` kwenye database kwa user_id ya reseller huyu
 #    (bei ni maamuzi ya kibiashara - hayawezi kuamuliwa na script).

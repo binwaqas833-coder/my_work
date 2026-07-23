@@ -85,8 +85,12 @@
 
   // Link ya kurudi kwenye ukurasa wa kuchagua kifurushi baada ya
   // trial kuisha - inatumia parameter sawa na login.html/index_backup.php
-  var redirectUrl = "http://192.168.20.253/my_work/index_backup.php" +
-      "?router_id=2" +
+  //
+  // router_id hapa chini LAZIMA iwe ya router hii. Ukipakua faili hii kupitia
+  // "MikroTik Setup" kwenye dashboard yako, namba sahihi tayari imewekwa
+  // kiotomatiki - hakuna cha kubadilisha kwa mkono.
+  var redirectUrl = "https://tech5g.co.tz/index_backup.php" +
+      "?router_id=1" +
       "&mac=" + encodeURIComponent("$(mac-esc)") +
       "&ip=" + encodeURIComponent("$(ip)") +
       "&link_login=" + encodeURIComponent("$(link-login-only)") +
