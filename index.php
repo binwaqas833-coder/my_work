@@ -17,9 +17,9 @@ if (isset($_SESSION['user_id'])) {
     <link rel="apple-touch-icon" sizes="192x192" href="favicon-192.png">
     <style>    
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'DM Sans', sans-serif; }
-        body { display: flex; justify-content: center; align-items: center; min-height: 100vh; background-image: linear-gradient(rgba(0,0,0,0.5)),url(beach5.jpg); background-repeat: no-repeat; background-position: center; background-size: cover; width: 100%; overflow: hidden; }
+        body { display: flex; justify-content: center; align-items: center; min-height: 100vh; background-image: linear-gradient(rgba(0,0,0,0.5), rgba(0,0,0,0.5)), url(beach5.jpg); background-repeat: no-repeat; background-position: center; background-size: cover; background-attachment: fixed; width: 100%; overflow-x: hidden; padding: 40px 16px; }
 
-        .ring { position: relative; width: 500px; height: 500px; display: flex; justify-content: center; align-items: center; }
+        .ring { position: relative; width: min(500px, 92vmin); height: min(500px, 92vmin); display: flex; justify-content: center; align-items: center; flex-shrink: 0; }
         .ring i { position: absolute; inset: 0;border: 2px solid var(--clr); transition: 0.5s;will-change: transform; }
         .ring i:nth-child(1){ border-radius: 38% 62% 63% 37% / 41% 44% 56% 59%; animation: animate 6s linear infinite; }
         .ring i:nth-child(2){ border-radius: 41% 44% 56% 59%/38% 62% 63% 37%; animation: animate 4s linear infinite; }
@@ -28,11 +28,13 @@ if (isset($_SESSION['user_id'])) {
         @keyframes animate { 0%{ transform: rotate(0deg); } 100%{ transform: rotate(360deg); } }
         @keyframes animate2{ 0%{ transform: rotate(360deg); } 100%{ transform: rotate(0deg); } }
         
-        .login { position: relative; width: 350px; width: 300px; display: flex; justify-content: center; align-items: center; flex-direction: column; gap: 20px; }
+        .login { position: relative; width: min(300px, 80vw); display: flex; justify-content: center; align-items: center; flex-direction: column; gap: 20px; }
         .login h2 { font-size: 2em; color: #fff; }
         .inputBx { position: relative; width: 100%; }
         .inputBx input { width: 100%; padding: 12px 40px 12px 20px; background: transparent; border: 2px solid #fff; border-radius: 40px; font-size: 1.1em; color: #fff; outline: none; }
-        button { width: 100%; cursor: pointer; padding: 12px; border-radius: 40px; border: 2px solid #fff; background: #fff; font-weight: bold; font-size: 1em; }
+        button { width: 100%; cursor: pointer; padding: 12px; border-radius: 40px; border: 2px solid #fff; background: linear-gradient(135deg, #3fc7fd, #1a34b7); color: #fff; font-weight: bold; font-size: 1em; transition: filter .25s, transform .25s; }
+        button:hover { filter: brightness(1.12); transform: translateY(-2px); }
+        button:active { transform: translateY(0); }
         .links { width: 100%; display: flex; justify-content: space-between; padding: 0 20px; color: #fff; font-size: 14px; }
         .links span { cursor: pointer; }
         .hidden { display: none; }
@@ -86,15 +88,18 @@ input::-webkit-credentials-auto-fill-button {
     from { opacity: 0; transform: translateY(-10px); }
     to { opacity: 1; transform: translateY(0); }
 }
-        /* Media Queries kwa ajili ya Simu na Tablet */
+        /* Media Queries kwa ajili ya Simu na Tablet.
+           Ukubwa wa .ring / .login tayari ni fluid (min()+vmin), hivyo hapa
+           tunarekebisha maandishi tu na skrini fupi. */
         @media (max-width: 480px) {
-            .ring { width: 400px; height: 400px; }
-            .login { width: 300px; }
-            .login h2 { font-size: 1.5em; }
+            .login h2 { font-size: 1.6em; }
+            .login { gap: 16px; }
+            .inputBx input { font-size: 1em; padding: 11px 40px 11px 18px; }
         }
-        @media (min-width: 481px) and (max-width: 768px) {
-            .ring { width: 400px; height: 400px; }
-            .login { width: 300px; }
+        /* Skrini fupi (mfano simu iliyolala/landscape au dirisha dogo):
+           anza kutoka juu ili fomu ndefu ya Signup iweze ku-scroll bila kukatwa. */
+        @media (max-height: 640px) {
+            body { align-items: flex-start; }
         }
          </style>
 </head>
