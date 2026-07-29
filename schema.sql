@@ -1,10 +1,24 @@
 -- ============================================================
--- schema_unified_empty.sql — Muundo WA PAMOJA wa database (login_signup)
--- Hii ni MUUNGANO wa schema.sql (GitHub) + login_signup(14).sql (live/production)
+-- schema_unified.sql — Muundo WA PAMOJA wa database (login_signup)
+-- Hii ni MUUNGANO wa schema.sql (GitHub) + login_signup__18_.sql (live/production)
 -- HAINA DATA — muundo (structure) tu, kwa install mpya au kulinganisha.
 --
+-- Live DB ilikuwa "mbele zaidi" kuliko schema.sql ya GitHub - schema hii
+-- imechukua muundo wa LIVE kama chanzo cha ukweli kwa kila jedwali, kisha
+-- imeongeza baadhi ya FOREIGN KEY ambazo live DB bado haina (zimewekwa
+-- alama "NDIO ZIADA" hapo chini) ili kulinda uadilifu wa data siku zijazo.
+--
+-- MABADILIKO MAKUBWA kulinganisha na schema.sql ya zamani (GitHub):
+--   • users: + subscription_status, subscription_expires,
+--            last_active_router_id, balance
+--   • mikrotik_configs: + router_label; user_id SIYO UNIQUE tena
+--            (reseller mmoja anaweza kuwa na routers kadhaa)
+--   • tariffs / vouchers: + router_id (bei na vocha sasa ni per-router)
+--   • JEDWALI MAPYA (yalikuwa hayapo kwenye schema.sql ya GitHub):
+--            payout_requests, subscriptions, subscription_plans, error_logs
+--
 -- Kuitumia (terminal):
---   mysql -u root < schema_unified_empty.sql
+--   mysql -u root < schema_unified.sql
 --
 -- Kutengeneza admin wa kwanza (baada ya kuinstall PHP):
 --   php -r "echo password_hash('WEKA_PASSWORD_HAPA', PASSWORD_DEFAULT), PHP_EOL;"
@@ -18,13 +32,17 @@ USE login_signup;
 
 SET FOREIGN_KEY_CHECKS = 0;
 
+DROP TABLE IF EXISTS error_logs;
 DROP TABLE IF EXISTS voucher_attempts;
+DROP TABLE IF EXISTS payout_requests;
 DROP TABLE IF EXISTS payment_transactions;
 DROP TABLE IF EXISTS active_users;
 DROP TABLE IF EXISTS access_points;
 DROP TABLE IF EXISTS vouchers;
-DROP TABLE IF EXISTS mikrotik_configs;
 DROP TABLE IF EXISTS tariffs;
+DROP TABLE IF EXISTS subscriptions;
+DROP TABLE IF EXISTS subscription_plans;
+DROP TABLE IF EXISTS mikrotik_configs;
 DROP TABLE IF EXISTS users;
 
 SET FOREIGN_KEY_CHECKS = 1;
@@ -40,47 +58,79 @@ CREATE TABLE users (
     parent_admin_id         INT NULL,                -- reseller huyu ni wa admin gani (hierarchy)
     role                    ENUM('user','admin') NOT NULL DEFAULT 'user',
     status                  ENUM('pending','approved','pending_reset') NOT NULL DEFAULT 'pending',
+    subscription_status     ENUM('trial','active','grace','expired') NOT NULL DEFAULT 'trial',
+    subscription_expires    DATETIME NULL,
+    last_active_router_id   INT NULL,                -- router ya mwisho aliyoitumia (mikrotik_configs.router_id)
     alert_email             VARCHAR(150) NULL,        -- email ya kupokea alerts za station offline
     notify_station_offline  TINYINT(1)   NOT NULL DEFAULT 1,
+    balance                 DECIMAL(10,2) NOT NULL DEFAULT 0,
     created_at              TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_parent_admin (parent_admin_id),
-    FOREIGN KEY (parent_admin_id) REFERENCES users(id) ON DELETE SET NULL
+    KEY fk_last_router (last_active_router_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ── VIFURUSHI/BEI ZA KILA RESELLER ──
+-- ── ROUTER(S) ZA MIKROTIK ZA KILA RESELLER (reseller mmoja anaweza kuwa na routers kadhaa) ──
+CREATE TABLE mikrotik_configs (
+    router_id    INT AUTO_INCREMENT PRIMARY KEY,
+    user_id      INT NOT NULL,
+    router_label VARCHAR(100) NOT NULL DEFAULT 'Router Yangu',
+    mikrotik_ip  VARCHAR(50)  NOT NULL,
+    api_user     VARCHAR(50)  NOT NULL,
+    api_pass     VARCHAR(100) NOT NULL,
+    api_port     INT          NOT NULL DEFAULT 8728,
+    allowed_ips  TEXT         NULL,                  -- whitelist (save_whitelist.php)
+    created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_user_id (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── VIFURUSHI VYA SUBSCRIPTION (mipango ya malipo ya mfumo, siyo tariffs za hotspot) ──
+CREATE TABLE subscription_plans (
+    id          INT AUTO_INCREMENT PRIMARY KEY,
+    plan_name   VARCHAR(50)   NOT NULL,
+    max_routers INT           NOT NULL,
+    price       DECIMAL(10,2) NOT NULL,
+    is_active   TINYINT(1)    NOT NULL DEFAULT 1,
+    created_at  TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── SUBSCRIPTION ZA KILA RESELLER (trial, active, grace, expired) ──
+CREATE TABLE subscriptions (
+    id                     INT AUTO_INCREMENT PRIMARY KEY,
+    user_id                INT NOT NULL,
+    plan_id                INT NULL,
+    status                 ENUM('trial','pending_payment','active','grace','expired') NOT NULL DEFAULT 'trial',
+    starts_at              DATETIME NOT NULL,
+    expires_at             DATETIME NOT NULL,
+    grace_until            DATETIME NULL,
+    amount_paid            DECIMAL(10,2) NULL,
+    payment_transaction_id VARCHAR(64) NULL,
+    created_at             TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_user (user_id),
+    KEY idx_status (status),
+    KEY idx_plan_id (plan_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── VIFURUSHI/BEI ZA KILA ROUTER (kila reseller-router ana bei zake) ──
 CREATE TABLE tariffs (
     id            INT AUTO_INCREMENT PRIMARY KEY,
     user_id       INT NOT NULL,
+    router_id     INT NOT NULL,
     package_type  VARCHAR(50)   NOT NULL,             -- 'daily' | 'weekly' | 'monthly'
     price         DECIMAL(10,2) NOT NULL DEFAULT 0,
     duration_days INT           NOT NULL DEFAULT 1,
     speed         VARCHAR(100)  NULL,                 -- mfano '2M/2M' au '6 Mbps'
     profile_name  VARCHAR(50)   NOT NULL,              -- LAZIMA ifanane na hotspot user profile ya MikroTik
     created_at    TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uq_user_package (user_id, package_type),
+    UNIQUE KEY uq_router_package (router_id, package_type),
     KEY idx_user_id (user_id),
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- ── ROUTER YA MIKROTIK YA KILA RESELLER (moja kwa reseller) ──
--- router_id ndiyo PRIMARY KEY (kama inavyotumika saivi na save_mikrotik.php,
--- ambayo hufanya ON DUPLICATE KEY UPDATE kwa UNIQUE(user_id)).
-CREATE TABLE mikrotik_configs (
-    router_id   INT AUTO_INCREMENT PRIMARY KEY,
-    user_id     INT NOT NULL UNIQUE,
-    mikrotik_ip VARCHAR(50)  NOT NULL,
-    api_user    VARCHAR(50)  NOT NULL,
-    api_pass    VARCHAR(100) NOT NULL,
-    api_port    INT          NOT NULL DEFAULT 8728,
-    allowed_ips TEXT         NULL,                    -- whitelist (save_whitelist.php)
-    created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    KEY idx_router_id (router_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ── VOCHA ──
 CREATE TABLE vouchers (
     id               INT AUTO_INCREMENT PRIMARY KEY,
     user_id          INT NOT NULL,                    -- reseller mwenye vocha hii
+    router_id        INT NOT NULL,                    -- router iliyotoa vocha hii
     phone            VARCHAR(20)  NOT NULL DEFAULT '',
     mac_address      VARCHAR(17)  NULL,
     voucher_code     VARCHAR(20)  NOT NULL DEFAULT 'N/A',
@@ -98,7 +148,7 @@ CREATE TABLE vouchers (
     created_at       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uq_user_code (user_id, voucher_code),
     KEY idx_phone (phone),
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    KEY idx_router_id (router_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ── ANTENA/ACCESS POINTS (kwa monitoring ya check_stations.php) ──
@@ -112,7 +162,7 @@ CREATE TABLE access_points (
     status              ENUM('online','offline') NOT NULL DEFAULT 'offline',
     created_at          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_seen           TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    KEY idx_user_id (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ── WATUMIAJI WALIO ONLINE SASA (live sessions kwenye MikroTik) ──
@@ -125,14 +175,14 @@ CREATE TABLE active_users (
     data_used    VARCHAR(20) NULL,
     status       VARCHAR(10) DEFAULT 'online',
     user_id      INT NULL,
-    KEY idx_user_id (user_id),
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+    KEY idx_user_id (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ── MALIPO (M-Pesa/Vodacom n.k.) ──
 CREATE TABLE payment_transactions (
     id             INT AUTO_INCREMENT PRIMARY KEY,
     user_id        INT NOT NULL,
+    router_id      INT NULL,
     phone          VARCHAR(20)  NOT NULL,
     package_type   VARCHAR(100) NOT NULL,
     amount         DECIMAL(10,2) NOT NULL,
@@ -145,7 +195,18 @@ CREATE TABLE payment_transactions (
     updated_at     DATETIME     NULL,
     KEY idx_user (user_id),
     KEY idx_txn (transaction_id),
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    KEY idx_router_id (router_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── MAOMBI YA CASH OUT (payout) ZA RESELLER ── [NDIO ZIADA: haikuwepo schema.sql ya zamani]
+CREATE TABLE payout_requests (
+    id           INT AUTO_INCREMENT PRIMARY KEY,
+    user_id      INT NOT NULL,
+    phone_number VARCHAR(20) NOT NULL,
+    amount       DECIMAL(10,2) NOT NULL,
+    status       ENUM('pending','approved','rejected') DEFAULT 'pending',
+    created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_user_id (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ── KUZUIA MAJARIBIO YA VOCHA MAKOSA MAKOSA (rate limiting) ──
@@ -156,3 +217,61 @@ CREATE TABLE voucher_attempts (
     first_attempt_at  DATETIME NOT NULL,
     blocked_until     DATETIME NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── LOG YA MAKOSA YA MFUMO (error_logger.php) ── [NDIO ZIADA: haikuwepo schema.sql ya zamani]
+CREATE TABLE error_logs (
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    source     VARCHAR(60) NOT NULL,
+    user_id    INT NULL,
+    router_id  INT NULL,
+    message    TEXT NOT NULL,
+    context    TEXT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_source (source),
+    KEY idx_user (user_id),
+    KEY idx_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- FOREIGN KEYS
+-- Zimewekwa hapa (baada ya majedwali yote kuundwa) badala ya inline,
+-- kwa sababu users <-> mikrotik_configs zina utegemezi wa pande zote mbili
+-- (users.last_active_router_id -> mikrotik_configs.router_id, na
+-- mikrotik_configs.user_id -> users.id).
+--
+-- Zilizo na "NDIO ZIADA" hazipo kwenye live DB ya sasa (haikuwa na FK
+-- constraint kwenye jedwali hilo) - zimeongezwa hapa kwa uadilifu wa data.
+-- Kama unapendelea kufanana 100% na live DB ya sasa, ziondoe kabla ya kuweka.
+-- ============================================================
+
+ALTER TABLE users
+    ADD CONSTRAINT fk_users_parent_admin FOREIGN KEY (parent_admin_id) REFERENCES users(id) ON DELETE SET NULL,
+    ADD CONSTRAINT fk_users_last_router  FOREIGN KEY (last_active_router_id) REFERENCES mikrotik_configs(router_id) ON DELETE SET NULL;
+
+ALTER TABLE mikrotik_configs
+    ADD CONSTRAINT fk_mikrotik_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE subscriptions
+    ADD CONSTRAINT fk_subscriptions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    ADD CONSTRAINT fk_subscriptions_plan FOREIGN KEY (plan_id) REFERENCES subscription_plans(id) ON DELETE SET NULL;
+
+ALTER TABLE tariffs
+    ADD CONSTRAINT fk_tariffs_user   FOREIGN KEY (user_id)   REFERENCES users(id) ON DELETE CASCADE,
+    ADD CONSTRAINT fk_tariffs_router FOREIGN KEY (router_id) REFERENCES mikrotik_configs(router_id) ON DELETE CASCADE;
+
+ALTER TABLE vouchers
+    ADD CONSTRAINT fk_vouchers_user   FOREIGN KEY (user_id)   REFERENCES users(id) ON DELETE CASCADE,
+    ADD CONSTRAINT fk_vouchers_router FOREIGN KEY (router_id) REFERENCES mikrotik_configs(router_id) ON DELETE CASCADE;
+
+ALTER TABLE access_points
+    ADD CONSTRAINT fk_access_points_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE active_users
+    ADD CONSTRAINT fk_active_users_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE payment_transactions
+    ADD CONSTRAINT fk_payment_user   FOREIGN KEY (user_id)   REFERENCES users(id) ON DELETE CASCADE,
+    ADD CONSTRAINT fk_payment_router FOREIGN KEY (router_id) REFERENCES mikrotik_configs(router_id) ON DELETE SET NULL; -- NDIO ZIADA
+
+ALTER TABLE payout_requests
+    ADD CONSTRAINT fk_payout_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE; -- NDIO ZIADA
