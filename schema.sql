@@ -1,6 +1,6 @@
 -- ============================================================
 -- schema_unified.sql — Muundo WA PAMOJA wa database (login_signup)
--- Hii ni MUUNGANO wa schema.sql (GitHub) + login_signup__18_.sql (live/production)
+-- Hii ni MUUNGANO wa schema.sql (GitHub) + login_signup.sql (live/production)
 -- HAINA DATA — muundo (structure) tu, kwa install mpya au kulinganisha.
 --
 -- Live DB ilikuwa "mbele zaidi" kuliko schema.sql ya GitHub - schema hii
