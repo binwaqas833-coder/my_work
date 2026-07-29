@@ -24,22 +24,44 @@ switch($action) {
                 $_SESSION['last_activity'] = time();
 
                 // ══════════════════════════════════════════
-                // MPYA: ANGALIA KAMA USER (siyo admin) ANA TARIFFS
-                // Kama hana, mpeleke kwenye setup_tariffs.php kwanza
+                // MULTI-ROUTER: weka "active_router_id" ya session kutoka
+                // last_active_router_id yake ya mwisho (kama bado ni yake),
+                // au chagua router ya kwanza aliyonayo. Kama hana router
+                // yoyote kabisa, mpeleke "My Mikrotiks" kwanza kabla ya
+                // kufika dashboard (haiwezekani kuona dashboard bila
+                // router iliyochaguliwa).
                 // ══════════════════════════════════════════
                 if ($user['role'] !== 'admin') {
-                    $tariff_check = $conn->prepare("SELECT COUNT(*) as c FROM tariffs WHERE user_id = ?");
-                    $tariff_check->bind_param("i", $user['id']);
-                    $tariff_check->execute();
-                    $has_tariffs = $tariff_check->get_result()->fetch_assoc()['c'] > 0;
 
-                    if (!$has_tariffs) {
-                        header("Location: setup_tariffs.php");
-                        exit();
+                    if (!empty($user['last_active_router_id'])) {
+                        $rchk = $conn->prepare("SELECT router_id FROM mikrotik_configs WHERE router_id=? AND user_id=?");
+                        $rchk->bind_param("ii", $user['last_active_router_id'], $user['id']);
+                        $rchk->execute();
+                        if ($rchk->get_result()->num_rows > 0) {
+                            $_SESSION['active_router_id'] = (int)$user['last_active_router_id'];
+                        }
+                        $rchk->close();
+                    }
+
+                    if (empty($_SESSION['active_router_id'])) {
+                        $rc_stmt = $conn->prepare("SELECT router_id FROM mikrotik_configs WHERE user_id=? ORDER BY router_id ASC LIMIT 1");
+                        $rc_stmt->bind_param("i", $user['id']);
+                        $rc_stmt->execute();
+                        $first_router = $rc_stmt->get_result()->fetch_assoc();
+                        $rc_stmt->close();
+
+                        if ($first_router) {
+                            // Ana router(s) lakini hakuna "active" iliyowekwa bado - tumia ya kwanza
+                            $_SESSION['active_router_id'] = (int)$first_router['router_id'];
+                        } else {
+                            // Hana router yoyote kabisa - lazima aongeze mmoja kwanza
+                            header("Location: my_mikrotiks.php");
+                            exit();
+                        }
                     }
                 }
                 // ══════════════════════════════════════════
-                // MWISHO WA NYONGEZA MPYA
+                // MWISHO WA NYONGEZA
                 // ══════════════════════════════════════════
 
                 header("Location: " . ($user['role'] == 'admin' ? "dashboard_chaguo.php" : "user_dashboard.php"));

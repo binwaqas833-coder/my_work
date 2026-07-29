@@ -3,35 +3,27 @@
  * payment_helper.php
  * -------------------------------------------------------------
  * Mantiki YA PAMOJA ya "malipo yamekamilika -> tengeneza voucher -> panda
- * MikroTik -> auto-login". Inatumika na sehemu MBILI tofauti:
+ * MikroTik -> auto-login". Inatumika na check_payment_status.php (MOCK
+ * kwa sasa) na baadaye azampay_callback.php (AzamPay halisi).
  *
- *   1. check_payment_status.php (SASA, wakati AZAMPAY_MOCK_MODE = true) -
- *      inaiga muda wa kusubiri malipo bila AzamPay halisi.
- *   2. azampay_callback.php (BAADAYE, utakapopata AzamPay Client ID/Secret) -
- *      webhook halisi itakayoitwa na AzamPay yenyewe.
- *
- * completeVoucherPayment() HAIBADILIKI kati ya hizo mbili - ndiyo lengo la
- * kuwa na helper hii: siku utakapounganisha AzamPay ya kweli, unabadilisha
- * TU jinsi function hii inavyoitwa (webhook badala ya polling-timer), sio
- * jinsi voucher inavyotengenezwa.
+ * MUHIMU (MULTI-ROUTER): txn (payment_transactions) sasa ina router_id
+ * yake yenyewe (iliyowekwa na lipia.php) - hii ndiyo chanzo cha ukweli
+ * cha "vocha hii inaenda router ipi", SIYO tena "router ya kwanza ya
+ * user huyu" kama ilivyokuwa awali.
  * -------------------------------------------------------------
  */
 
-// ⚠️ BADILISHA KUWA false SIKU UTAKAPOUNGANISHA AZAMPAY HALISI.
-// Ukiwa true: check_payment_status.php inajikamilishia malipo yenyewe baada
-// ya MOCK_DELAY_SECONDS, ili uweze kutest mfumo mzima bila kusubiri AzamPay.
 define('AZAMPAY_MOCK_MODE', true);
-define('MOCK_DELAY_SECONDS', 6); // "muda wa kusubiri" tunaoiga kwenye mock
+define('MOCK_DELAY_SECONDS', 6);
 
 require_once 'routeros_api.class.php';
-require_once 'mikrotik_helper.php';
+require_once 'mikrotik_helper.php';   // toleo JIPYA (multi-router)
+require_once 'error_logger.php';
 
 /**
  * Kamilisha malipo ya "pending" transaction: tengeneza voucher ya kipekee,
- * ipandishe MikroTik, fanya auto-login kama mac/ip zipo, kisha sasisha
- * rekodi ya payment_transactions na vouchers.
- *
- * @return array ['status' => 'completed'|'failed'|'pending', 'voucher_code' => string|null, 'message' => string]
+ * ipandishe MikroTik (router iliyohifadhiwa kwenye txn), fanya auto-login
+ * kama mac/ip zipo, kisha sasisha rekodi za payment_transactions na vouchers.
  */
 function completeVoucherPayment($conn, $transaction_id)
 {
@@ -45,7 +37,6 @@ function completeVoucherPayment($conn, $transaction_id)
         return ['status' => 'failed', 'voucher_code' => null, 'message' => 'Transaction haipo.'];
     }
 
-    // Kama tayari imeshakamilika/kushindikana awali (mfano poll mbili karibu karibu), rudisha hali ile ile
     if ($txn['status'] === 'completed') {
         return ['status' => 'completed', 'voucher_code' => $txn['voucher_code'], 'message' => 'Malipo yamekamilika.'];
     }
@@ -54,11 +45,18 @@ function completeVoucherPayment($conn, $transaction_id)
     }
 
     $user_id      = (int)$txn['user_id'];
+    $router_id    = (int)($txn['router_id'] ?? 0);
     $package_type = $txn['package_type'];
 
-    // Tariff halisi (chanzo cha ukweli - siyo bei iliyohifadhiwa kwenye transaction)
-    $t2 = $conn->prepare("SELECT * FROM tariffs WHERE user_id = ? AND package_type = ? LIMIT 1");
-    $t2->bind_param("is", $user_id, $package_type);
+    if ($router_id <= 0) {
+        markTransactionFailed($conn, $transaction_id, 'Router haijulikani kwenye transaction hii.');
+        logSystemError($conn, 'payment_helper.php', "Transaction {$transaction_id} haina router_id.", ['user_id' => $user_id]);
+        return ['status' => 'failed', 'voucher_code' => null, 'message' => 'Router haijulikani kwenye transaction hii.'];
+    }
+
+    // Tariff HALISI - sasa kwa router_id (chanzo cha ukweli)
+    $t2 = $conn->prepare("SELECT * FROM tariffs WHERE router_id = ? AND package_type = ? LIMIT 1");
+    $t2->bind_param("is", $router_id, $package_type);
     $t2->execute();
     $tariff = $t2->get_result()->fetch_assoc();
     $t2->close();
@@ -68,18 +66,16 @@ function completeVoucherPayment($conn, $transaction_id)
         return ['status' => 'failed', 'voucher_code' => null, 'message' => 'Kifurushi hakipatikani tena.'];
     }
 
-    $price         = (float)$tariff['price'];
     $duration_days = (int)$tariff['duration_days'];
     $profile_name  = $tariff['profile_name'];
 
-    // Voucher code ya kipekee
     do {
         $voucher_code = random_int(100000, 999999);
         $chk = $conn->query("SELECT id FROM vouchers WHERE voucher_code='$voucher_code' AND user_id='$user_id' LIMIT 1");
     } while ($chk && $chk->num_rows > 0);
 
-    // Unganisha na MikroTik ya reseller huyu
-    $API = getMikrotikConnection($user_id, $conn);
+    // Unganisha na router SAHIHI (iliyohifadhiwa kwenye txn, siyo "ya kwanza tuliyoipata")
+    $API = getMikrotikConnection($router_id, $user_id, $conn);
     if (!$API) {
         markTransactionFailed($conn, $transaction_id, 'Router ya mtoa huduma haipatikani.');
         return ['status' => 'failed', 'voucher_code' => null, 'message' => 'Router ya mtoa huduma haipatikani.'];
@@ -110,13 +106,13 @@ function completeVoucherPayment($conn, $transaction_id)
 
     $ins = $conn->prepare("
         INSERT INTO vouchers
-            (user_id, phone, mac_address, voucher_code, package_type, price, duration_days,
+            (user_id, router_id, phone, mac_address, voucher_code, package_type, price, duration_days,
              mikrotik_profile, status, payment_method, type, mikrotik_synced, transaction_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?)
     ");
     $ins->bind_param(
-        "issssdisssis",
-        $user_id, $txn['phone'], $txn['client_mac'], $voucher_code, $package_type, $price, $duration_days,
+        "iissssdisssis",
+        $user_id, $router_id, $txn['phone'], $txn['client_mac'], $voucher_code, $package_type, $tariff['price'], $duration_days,
         $profile_name, $status_voucher, $mtandao_wa_simu, $mikrotik_synced, $transaction_id
     );
     $ins->execute();
@@ -143,17 +139,6 @@ function markTransactionFailed($conn, $transaction_id, $reason)
     $u->close();
 }
 
-/**
- * Jaribu tena kukamilisha transaction iliyokwama - mfano ilibaki 'pending'
- * kwa sababu mteja alifunga tab kabla webhook/mock haijamfikia, au
- * ilishindikana kimfumo ('failed' - mfano router ilikuwa chini wakati huo
- * lakini sasa iko juu). HAITUMII PESA MPYA - inadhania tayari umethibitisha
- * (kwa mfano kwenye AzamPay dashboard/M-Pesa statement) kuwa mteja KWELI
- * amelipa, na unataka tu kumpa voucher yake.
- *
- * Kama 'failed', kwanza tunaifungua tena kama 'pending' kabla ya kujaribu -
- * completeVoucherPayment() haitajaribu kukamilisha rekodi iliyo 'failed'.
- */
 function retryPaymentTransaction($conn, $transaction_id)
 {
     $u = $conn->prepare("UPDATE payment_transactions SET status='pending' WHERE transaction_id=? AND status='failed'");
@@ -164,11 +149,6 @@ function retryPaymentTransaction($conn, $transaction_id)
     return completeVoucherPayment($conn, $transaction_id);
 }
 
-/**
- * Tambua mtandao wa simu kutoka prefix - nakala kutoka lipia.php ili
- * payment_helper.php isimame peke yake bila kutegemea lipia.php kuwa
- * imeshapakiwa kabla (azampay_callback.php haitapitia lipia.php kabisa).
- */
 function tambuaMtandaoWaSimuHelper($namba)
 {
     $namba = preg_replace('/[^0-9]/', '', $namba);

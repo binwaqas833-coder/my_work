@@ -147,6 +147,39 @@ body::before{content:'';position:fixed;inset:0;background:rgba(0,0,0,0.30);point
 .step-card h4{font-size:14px;font-weight:700;margin-bottom:6px}
 .step-card p{font-size:12.5px;color:var(--text-dim);line-height:1.6}
 
+/* ── PRICING / SUBSCRIPTION PLANS ── */
+.pricing-note{
+    text-align:center;font-size:12.5px;color:var(--accent2);background:rgba(63,199,253,0.10);
+    border:1px solid rgba(63,199,253,0.25);display:inline-flex;gap:8px;align-items:center;
+    padding:7px 16px;border-radius:30px;margin:0 auto 30px;
+}
+.pricing-note-wrap{text-align:center}
+.pricing-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.price-card{
+    background:var(--surface);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+    border:1px solid var(--border2);border-radius:var(--radius);padding:30px 26px;position:relative;
+    transition:transform 0.25s,border-color 0.25s;display:flex;flex-direction:column;
+}
+.price-card:hover{transform:translateY(-4px);border-color:var(--accent)}
+.price-card.featured{border-color:var(--accent);background:rgba(7,247,147,0.08)}
+.price-popular{
+    position:absolute;top:-13px;left:50%;transform:translateX(-50%);background:var(--accent);color:#04231a;
+    font-size:10.5px;font-weight:800;padding:5px 14px;border-radius:20px;text-transform:uppercase;letter-spacing:0.5px;
+}
+.price-plan-name{font-family:'Syne',sans-serif;font-weight:800;font-size:18px;margin-bottom:6px}
+.price-amount{font-family:'Syne',sans-serif;font-weight:800;font-size:30px;color:var(--accent);margin-bottom:2px}
+.price-amount span{font-size:13px;color:var(--text-dim);font-weight:400;font-family:'DM Sans',sans-serif}
+.price-billed{font-size:11.5px;color:var(--text-muted);margin-bottom:20px}
+.price-features{list-style:none;margin:0 0 26px;padding:0;flex:1}
+.price-features li{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text-dim);padding:7px 0;border-bottom:1px solid var(--border2)}
+.price-features li:last-child{border-bottom:none}
+.price-features li i{color:var(--accent);font-size:12px;width:14px}
+.price-card .btn{width:100%;justify-content:center}
+
+@media (max-width:820px){
+    .pricing-grid{grid-template-columns:1fr}
+}
+
 /* ── PAYMENT METHODS STRIP (logo zinazotembea kama ulaini) ── */
 .pay-strip{
     max-width:1100px;margin:0 auto 80px;padding:26px 0;background:var(--surface2);
@@ -475,6 +508,64 @@ body::before{content:'';position:fixed;inset:0;background:rgba(0,0,0,0.30);point
         </div>
     </section>
 
+    <!-- ══ PRICING / SUBSCRIPTION PLANS ══ -->
+    <section class="section" id="bei">
+        <div class="section-head">
+            <div class="eyebrow" data-translate="pricing_eyebrow">Bei</div>
+            <h2 data-translate="pricing_h2">Chagua Mpango Unaokufaa</h2>
+            <p data-translate="pricing_p">Kila mpango una trial ya siku 7 bila malipo - jaribu mfumo kabla ya kulipa.</p>
+        </div>
+        <div class="pricing-note-wrap">
+            <div class="pricing-note"><i class="fa-solid fa-gift"></i> <span data-translate="pricing_trial_note">Trial ya Siku 7 Bila Malipo kwa Kila Mpango</span></div>
+        </div>
+        <div class="pricing-grid">
+
+            <div class="price-card reveal-left">
+                <div class="price-plan-name">Tech Solo</div>
+                <div class="price-amount">Tsh 100,000<span data-translate="price_per_year">/mwaka</span></div>
+                <div class="price-billed" data-translate="price_solo_billed">Router 1</div>
+                <ul class="price-features">
+                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_routers1">Router 1 ya MikroTik</span></li>
+                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_vouchers">Vocha zisizo na kikomo</span></li>
+                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_dashboard">Dashboard kamili ya mauzo</span></li>
+                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_payments">Malipo ya mtandao wa simu</span></li>
+                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_support">Msaada wa Haraka</span></li>
+                </ul>
+                <a href="index.php#signup" class="btn btn-outline"><i class="fa-solid fa-gift"></i> <span data-translate="price_btn_trial">Anza Trial ya Siku 7</span></a>
+            </div>
+
+            <div class="price-card featured reveal-up">
+                <span class="price-popular" data-translate="price_popular_tag">Maarufu Zaidi</span>
+                <div class="price-plan-name">Tech Pro</div>
+                <div class="price-amount">Tsh 180,000<span data-translate="price_per_year">/mwaka</span></div>
+                <div class="price-billed" data-translate="price_pro_billed">Routers 3</div>
+                <ul class="price-features">
+                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_routers3">Routers 3 za MikroTik</span></li>
+                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_vouchers">Vocha zisizo na kikomo</span></li>
+                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_switch">Badilisha kati ya routers kwa kubonyeza</span></li>
+                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_perrouter">Bei tofauti kwa kila router</span></li>
+                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_support">Msaada wa Haraka</span></li>
+                </ul>
+                <a href="index.php#signup" class="btn btn-primary"><i class="fa-solid fa-gift"></i> <span data-translate="price_btn_trial">Anza Trial ya Siku 7</span></a>
+            </div>
+
+            <div class="price-card reveal-right">
+                <div class="price-plan-name">Tech Max</div>
+                <div class="price-amount">Tsh 300,000<span data-translate="price_per_year">/mwaka</span></div>
+                <div class="price-billed" data-translate="price_max_billed">Routers 10</div>
+                <ul class="price-features">
+                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_routers10">Routers 10 za MikroTik</span></li>
+                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_vouchers">Vocha zisizo na kikomo</span></li>
+                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_switch">Badilisha kati ya routers kwa kubonyeza</span></li>
+                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_perrouter">Bei tofauti kwa kila router</span></li>
+                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_priority">Kipaumbele cha Msaada</span></li>
+                </ul>
+                <a href="index.php#signup" class="btn btn-outline"><i class="fa-solid fa-gift"></i> <span data-translate="price_btn_trial">Anza Trial ya Siku 7</span></a>
+            </div>
+
+        </div>
+    </section>
+
     <!-- ══ PAYMENT METHODS (logo zinazotembea) ══ -->
     <div class="pay-strip reveal-up">
         <p class="pay-label" data-translate="pay_label">Tunakubali Malipo Kupitia</p>
@@ -535,7 +626,7 @@ body::before{content:'';position:fixed;inset:0;background:rgba(0,0,0,0.30);point
                     <div class="c-icon"><i class="fa-solid fa-envelope"></i></div>
                     <div class="c-text">
                         <div class="c-lbl" data-translate="c_lbl_email">Barua Pepe</div>
-                        <a href="mailto:shaabansilima@gmail.com">shaabansilima@gmail.com</a>
+                        <a href="mailto:tech5gwifi@gmail.com">tech5gwifi@gmail.com</a>
                     </div>
                 </div>
                 <div class="contact-row">
@@ -736,6 +827,17 @@ const tafsiri = {
         faqA5: "Ndiyo. Mfumo unatumia usalama wa hali ya juu kulinda taarifa za malipo na akaunti — kila muuzaji (reseller) anaona taarifa za wateja wake pekee.",
         cta_h2: "Uko Tayari Kuanza?", cta_p: "Fungua akaunti yako ya muuzaji (reseller) leo na uanze kuuza vocha za Wi-Fi kwa dakika chache.",
         cta_btn_signup: "Jisajili Sasa", cta_btn_login: "Nina Akaunti Tayari",
+        pricing_eyebrow: "Bei", pricing_h2: "Chagua Mpango Unaokufaa",
+        pricing_p: "Kila mpango una trial ya siku 7 bila malipo - jaribu mfumo kabla ya kulipa.",
+        pricing_trial_note: "Trial ya Siku 7 Bila Malipo kwa Kila Mpango",
+        price_per_year: "/mwaka",
+        price_solo_billed: "Router 1", price_pro_billed: "Routers 3", price_max_billed: "Routers 10",
+        price_popular_tag: "Maarufu Zaidi",
+        price_feat_routers1: "Router 1 ya MikroTik", price_feat_routers3: "Routers 3 za MikroTik", price_feat_routers10: "Routers 10 za MikroTik",
+        price_feat_vouchers: "Vocha zisizo na kikomo", price_feat_dashboard: "Dashboard kamili ya mauzo",
+        price_feat_payments: "Malipo ya mtandao wa simu", price_feat_support: "Msaada wa Haraka",
+        price_feat_switch: "Badilisha kati ya routers kwa kubonyeza", price_feat_perrouter: "Bei tofauti kwa kila router",
+        price_feat_priority: "Kipaumbele cha Msaada", price_btn_trial: "Anza Trial ya Siku 7",
         footer_rights: "Haki zote zimehifadhiwa"
     },
     en: {
@@ -783,6 +885,17 @@ const tafsiri = {
         faqA5: "Yes. The system uses advanced security to protect payment and account data — each reseller only sees their own customers' information.",
         cta_h2: "Ready to Get Started?", cta_p: "Create your reseller account today and start selling Wi-Fi vouchers in minutes.",
         cta_btn_signup: "Sign Up Now", cta_btn_login: "I Already Have an Account",
+        pricing_eyebrow: "Pricing", pricing_h2: "Choose the Plan That Fits You",
+        pricing_p: "Every plan includes a 7-day free trial - try the system before you pay.",
+        pricing_trial_note: "7-Day Free Trial on Every Plan",
+        price_per_year: "/year",
+        price_solo_billed: "1 Router", price_pro_billed: "3 Routers", price_max_billed: "10 Routers",
+        price_popular_tag: "Most Popular",
+        price_feat_routers1: "1 MikroTik Router", price_feat_routers3: "3 MikroTik Routers", price_feat_routers10: "10 MikroTik Routers",
+        price_feat_vouchers: "Unlimited vouchers", price_feat_dashboard: "Full sales dashboard",
+        price_feat_payments: "Mobile money payments", price_feat_support: "Fast support",
+        price_feat_switch: "Switch between routers with one click", price_feat_perrouter: "Different pricing per router",
+        price_feat_priority: "Priority support", price_btn_trial: "Start 7-Day Trial",
         footer_rights: "All rights reserved"
     }
 };

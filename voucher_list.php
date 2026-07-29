@@ -1,13 +1,22 @@
 <?php
 session_start();
 include 'login_signup.php';
+require_once 'error_logger.php';
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: index.php");
     exit();
 }
 
-$my_id = $_SESSION['user_id'];
+$my_id = (int)$_SESSION['user_id'];
+
+// ── MUHIMU (MULTI-ROUTER): orodha hii inaonyesha vocha za router
+// "active" ya sasa pekee. ──
+$router_id = (int)($_SESSION['active_router_id'] ?? 0);
+if ($router_id <= 0) {
+    header("Location: my_mikrotiks.php");
+    exit();
+}
 
 // ————————————————————————————————————————————————————————————
 // 1. AJAX OPERATIONS: FUTA VOCHA MOJA AU NYINGI (API & DB)
@@ -18,28 +27,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
 
     if ($action === 'delete') {
         $vid = (int)$_POST['id'];
-        
-        // Unganisha na RouterOS API kufuta vocha kwenye MikroTik kabla ya DB
-        require_once 'routeros_api.class.php';
-        require_once 'mikrotik_helper.php';     // helper mpya (mysqli version)
 
-        $cfg = $conn->query("SELECT * FROM mikrotik_configs WHERE user_id='$my_id' LIMIT 1")->fetch_assoc();
-        
-        if ($cfg) {
-            $API = new RouterosAPI();
-            if ($API->connect($cfg['mikrotik_ip'], $cfg['api_user'], mt_decrypt($cfg['api_pass']))) {
-                // Tafuta jina au code ya vocha ili tuiondoe MikroTik
-                $vc = $conn->query("SELECT voucher_code FROM vouchers WHERE id=$vid AND user_id='$my_id' LIMIT 1")->fetch_assoc();
-                if ($vc) {
-                    $API->comm('/ip/hotspot/user/remove', ['numbers' => $vc['voucher_code']]);
-                }
+        require_once 'routeros_api.class.php';
+        require_once 'mikrotik_helper.php';     // toleo JIPYA (multi-router)
+
+        // Tafuta voucher_code (na thibitisha ni yako, ya router hii) KABLA
+        // ya kufuta - tunahitaji code hii kuiondoa MikroTik.
+        $vc_stmt = $conn->prepare("SELECT voucher_code FROM vouchers WHERE id=? AND user_id=? AND router_id=? LIMIT 1");
+        $vc_stmt->bind_param("iii", $vid, $my_id, $router_id);
+        $vc_stmt->execute();
+        $vc = $vc_stmt->get_result()->fetch_assoc();
+        $vc_stmt->close();
+
+        if ($vc) {
+            $API = getMikrotikConnection($router_id, $my_id, $conn);
+            if ($API) {
+                removeHotspotUserFromMikrotik($API, $vc['voucher_code']);
                 $API->disconnect();
             }
         }
 
-        // Futa kwenye Database ya mfumo wako
-        $d = $conn->prepare("DELETE FROM vouchers WHERE id=? AND user_id=?");
-        $d->bind_param("ii", $vid, $my_id);
+        $d = $conn->prepare("DELETE FROM vouchers WHERE id=? AND user_id=? AND router_id=?");
+        $d->bind_param("iii", $vid, $my_id, $router_id);
         $d->execute();
         echo json_encode(['status' => $d->affected_rows > 0 ? 'success' : 'error']);
         exit();
@@ -53,34 +62,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
         }
 
         require_once 'routeros_api.class.php';
-        $cfg = $conn->query("SELECT * FROM mikrotik_configs WHERE user_id='$my_id' LIMIT 1")->fetch_assoc();
-        
-        $API = null;
-        if ($cfg) {
-            $API = new RouterosAPI();
-            if (!$API->connect($cfg['mikrotik_ip'], $cfg['api_user'], mt_decrypt($cfg['api_pass']))) {
-                $API = null;
-            }
-        }
+        require_once 'mikrotik_helper.php';
+
+        $API = getMikrotikConnection($router_id, $my_id, $conn);
 
         $deleted = 0;
         foreach ($ids as $vid) {
-            if ($API) {
-                $vc = $conn->query("SELECT voucher_code FROM vouchers WHERE id=$vid AND user_id='$my_id' LIMIT 1")->fetch_assoc();
-                if ($vc) {
-                    $API->comm('/ip/hotspot/user/remove', ['numbers' => $vc['voucher_code']]);
-                }
+            $vc_stmt = $conn->prepare("SELECT voucher_code FROM vouchers WHERE id=? AND user_id=? AND router_id=? LIMIT 1");
+            $vc_stmt->bind_param("iii", $vid, $my_id, $router_id);
+            $vc_stmt->execute();
+            $vc = $vc_stmt->get_result()->fetch_assoc();
+            $vc_stmt->close();
+
+            if ($API && $vc) {
+                removeHotspotUserFromMikrotik($API, $vc['voucher_code']);
             }
-            
-            // Futa kutoka kwenye database
-            $d = $conn->prepare("DELETE FROM vouchers WHERE id=? AND user_id=?");
-            $d->bind_param("ii", $vid, $my_id);
+
+            $d = $conn->prepare("DELETE FROM vouchers WHERE id=? AND user_id=? AND router_id=?");
+            $d->bind_param("iii", $vid, $my_id, $router_id);
             $d->execute();
             if ($d->affected_rows > 0) {
                 $deleted++;
             }
         }
-        
+
         if ($API) {
             $API->disconnect();
         }
@@ -93,14 +98,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
 // ————————————————————————————————————————————————————————————
 // 2. DATA QUERY & PAGINATION & FILTERING LOGIC
 // ————————————————————————————————————————————————————————————
-$total_all = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) c FROM vouchers WHERE user_id='$my_id'"))['c'] ?? 0;
+$total_all = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) c FROM vouchers WHERE user_id='$my_id' AND router_id='$router_id'"))['c'] ?? 0;
 
 $limit  = isset($_GET['limit']) ? (int)$_GET['limit'] : 10;
 $page   = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 $offset = ($page - 1) * $limit;
 $search = isset($_GET['search']) ? mysqli_real_escape_string($conn, $_GET['search']) : '';
 
-$where_clause = "WHERE user_id='$my_id'";
+$where_clause = "WHERE user_id='$my_id' AND router_id='$router_id'";
 if (!empty($search)) {
     $where_clause .= " AND (voucher_code LIKE '%$search%' OR mikrotik_profile LIKE '%$search%')";
 }

@@ -3,6 +3,7 @@ session_start();
 include 'login_signup.php';
 require_once 'routeros_api.class.php';
 require_once 'mikrotik_helper.php';     // helper mpya (mysqli version)
+require_once 'subscription_helper.php'; // startTrialSubscription(), n.k.
 
 // ── SESSION TIMEOUT (dakika 15) ──
 $timeout = 900;
@@ -33,7 +34,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
             echo json_encode(['status'=>'success', 'msg'=>'Password Reset imeidhinishwa! ✅']);
         } else {
             mysqli_query($conn, "UPDATE users SET status='approved' WHERE id=$id");
-            echo json_encode(['status'=>'success', 'msg'=>'Mtumiaji amekubaliwa! ✅']);
+            // ── Anzisha trial ya siku 7 (MARA MOJA TU - haitokei tena kama tayari ana subscription) ──
+            startTrialSubscription($conn, $id);
+            echo json_encode(['status'=>'success', 'msg'=>'Mtumiaji amekubaliwa na trial ya siku 7 imeanzishwa! ✅']);
         }
     } elseif ($action === 'make_admin') {
         mysqli_query($conn, "UPDATE users SET role='admin' WHERE id=$id");
@@ -41,28 +44,181 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
     } elseif ($action === 'delete') {
         mysqli_query($conn, "DELETE FROM users WHERE id=$id");
         echo json_encode(['status'=>'success', 'msg'=>'Mtumiaji amefutwa.']);
+    
+    // ── PAYOUT ACTIONS ──
+    } elseif ($action === 'payout_approve') {
+        // Vuta data ya reseller kwanza (Email, Username, Amount) ili tuweze kutuma email
+        $stmt_user = mysqli_prepare($conn, "
+            SELECT u.email, u.username, p.amount
+            FROM payout_requests p
+            JOIN users u ON p.user_id = u.id
+            WHERE p.id = ? AND p.status = 'pending'
+        ");
+        mysqli_stmt_bind_param($stmt_user, "i", $id);
+        mysqli_stmt_execute($stmt_user);
+        $reseller = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt_user));
+        mysqli_stmt_close($stmt_user);
+
+        if ($reseller) {
+            $stmt = mysqli_prepare($conn, "UPDATE payout_requests SET status = 'approved' WHERE id = ? AND status = 'pending'");
+            mysqli_stmt_bind_param($stmt, "i", $id);
+            $updated = mysqli_stmt_execute($stmt) && mysqli_stmt_affected_rows($stmt) > 0;
+            mysqli_stmt_close($stmt);
+
+            if ($updated) {
+                // TUMA EMAIL (AUTOMATIC) - tunakagua matokeo ili tumjulishe admin ukweli
+                $email_sent = false;
+                if (!empty($reseller['email'])) {
+                    require_once __DIR__ . '/email_helper.php';
+
+                    $subject = "Ombi Lako la Cash Out Limethibitishwa! ✅";
+                    $msg = "Habari <strong>" . htmlspecialchars($reseller['username'], ENT_QUOTES) . "</strong>,<br><br>" .
+                           "Ombi lako la Cash Out la kiwango cha <strong>TSh " . number_format($reseller['amount'], 2) . "</strong> " .
+                           "limethibitishwa kikamilifu na malipo yamekamilika.<br><br>" .
+                           "Asante kwa kuendelea kufanya kazi na Tech 5G!";
+
+                    $email_sent = sendStatusEmail($reseller['email'], $reseller['username'], $subject, $msg);
+                }
+
+                $final_msg = $email_sent
+                    ? 'Cash Out imethibitishwa na Barua Pepe imetumwa kwa reseller! ✅'
+                    : 'Cash Out imethibitishwa, LAKINI barua pepe haikutumwa (angalia error_log). ⚠️';
+
+                echo json_encode(['status' => 'success', 'msg' => $final_msg, 'email_sent' => $email_sent]);
+            } else {
+                echo json_encode(['status'=>'error', 'msg'=>'Ombi halijapatikana au tayari lilishachakatwa.']);
+            }
+        } else {
+            echo json_encode(['status'=>'error', 'msg'=>'Ombi halijapatikana au tayari lilishachakatwa.']);
+        }
+
+    } elseif ($action === 'payout_reject') {
+        // Leta data ya payout & reseller (pamoja na email) ili kurudisha salio na kutuma taarifa
+        $stmt_get = mysqli_prepare($conn, "
+            SELECT p.user_id, p.amount, u.email, u.username
+            FROM payout_requests p
+            JOIN users u ON p.user_id = u.id
+            WHERE p.id = ? AND p.status = 'pending'
+        ");
+        mysqli_stmt_bind_param($stmt_get, "i", $id);
+        mysqli_stmt_execute($stmt_get);
+        $res = mysqli_stmt_get_result($stmt_get);
+        $p_data = mysqli_fetch_assoc($res);
+        mysqli_stmt_close($stmt_get);
+
+        if ($p_data) {
+            $p_user_id = (int)$p_data['user_id'];
+            $p_amount  = (float)$p_data['amount'];
+
+            mysqli_begin_transaction($conn);
+            try {
+                // Update Payout status
+                $stmt_rej = mysqli_prepare($conn, "UPDATE payout_requests SET status = 'rejected' WHERE id = ?");
+                mysqli_stmt_bind_param($stmt_rej, "i", $id);
+                mysqli_stmt_execute($stmt_rej);
+                mysqli_stmt_close($stmt_rej);
+
+                // Rejesha salio kwa user
+                $stmt_ref = mysqli_prepare($conn, "UPDATE users SET balance = balance + ? WHERE id = ?");
+                mysqli_stmt_bind_param($stmt_ref, "di", $p_amount, $p_user_id);
+                mysqli_stmt_execute($stmt_ref);
+                mysqli_stmt_close($stmt_ref);
+
+                mysqli_commit($conn);
+
+                // TUMA EMAIL YA REJECT & REFUND (AUTOMATIC)
+                $email_sent = false;
+                if (!empty($p_data['email'])) {
+                    require_once __DIR__ . '/email_helper.php';
+
+                    $subject = "Taarifa ya Ombi la Cash Out 🔄";
+                    $msg = "Habari <strong>" . htmlspecialchars($p_data['username'], ENT_QUOTES) . "</strong>,<br><br>" .
+                           "Ombi lako la Cash Out la <strong>TSh " . number_format($p_amount, 2) . "</strong> limekataliwa.<br>" .
+                           "Kiasi hiki cha TSh " . number_format($p_amount, 2) . " kimerudishwa kwenye salio lako la reseller.<br><br>" .
+                           "Tafadhali mawasiliana na Admin kwa maelezo zaidi.";
+
+                    $email_sent = sendStatusEmail($p_data['email'], $p_data['username'], $subject, $msg);
+                }
+
+                $final_msg = $email_sent
+                    ? ('Ombi limekataliwa, TSh ' . number_format($p_amount, 2) . ' imerejeshwa na Email imetumwa! 🔄')
+                    : ('Ombi limekataliwa, TSh ' . number_format($p_amount, 2) . ' imerejeshwa, LAKINI barua pepe haikutumwa. ⚠️');
+
+                echo json_encode(['status' => 'success', 'msg' => $final_msg, 'email_sent' => $email_sent]);
+            } catch (\Throwable $e) {
+                mysqli_rollback($conn);
+                error_log("payout_reject error kwa payout_id={$id}: " . $e->getMessage());
+                echo json_encode(['status'=>'error', 'msg'=>'Hitilafu wakati wa kuchakata ombi.']);
+            }
+        } else {
+            echo json_encode(['status'=>'error', 'msg'=>'Ombi halijapatikana au lilishachakatwa.']);
+        }
     } else {
         echo json_encode(['status'=>'error', 'msg'=>'Kitendo hakijulikani.']);
     }
     exit();
 }
 
-// ── HESABU ──
-$total_pending = mysqli_fetch_assoc(mysqli_query($conn,"SELECT COUNT(*) c FROM users WHERE status='pending'"))['c'] ?? 0;
-$total_resets  = mysqli_fetch_assoc(mysqli_query($conn,"SELECT COUNT(*) c FROM users WHERE status='pending_reset'"))['c'] ?? 0;
-$total_users   = mysqli_fetch_assoc(mysqli_query($conn,"SELECT COUNT(*) c FROM users"))['c'] ?? 0;
-$total_admins  = mysqli_fetch_assoc(mysqli_query($conn,"SELECT COUNT(*) c FROM users WHERE role='admin'"))['c'] ?? 0;
+// ── AJAX: HALI YA MIKROTIK KWA MTUMIAJI MMOJA (GET) ──
+if (isset($_GET['ajax_mikrotik_status']) && isset($_GET['uid'])) {
+    header('Content-Type: application/json');
+    $uid_check = (int)$_GET['uid'];
+    $ids_param = trim($_GET['router_ids'] ?? '');
+    $router_ids = array_filter(array_map('intval', explode(',', $ids_param)));
 
-// ── VUTA WATUMIAJI WOTE (pamoja na router_id kutoka mikrotik_configs) ──
-// Columns: id, username, email, phone, password, role, status, created_at
-// LEFT JOIN: tunaweka watumiaji wote, hata wale wasio na router lililosajiliwa bado
+    $online_count = 0;
+    foreach ($router_ids as $rid) {
+        $MK_CHECK = getMikrotikConnection($rid, $uid_check, $conn);
+        if ($MK_CHECK) {
+            $online_count++;
+            $MK_CHECK->disconnect();
+        }
+    }
+    echo json_encode(['status' => 'success', 'online' => $online_count, 'total' => count($router_ids)]);
+    exit();
+}
+
+// ── HESABU ──
+$total_pending  = mysqli_fetch_assoc(mysqli_query($conn,"SELECT COUNT(*) c FROM users WHERE status='pending'"))['c'] ?? 0;
+$total_resets   = mysqli_fetch_assoc(mysqli_query($conn,"SELECT COUNT(*) c FROM users WHERE status='pending_reset'"))['c'] ?? 0;
+$total_users    = mysqli_fetch_assoc(mysqli_query($conn,"SELECT COUNT(*) c FROM users"))['c'] ?? 0;
+$total_admins   = mysqli_fetch_assoc(mysqli_query($conn,"SELECT COUNT(*) c FROM users WHERE role='admin'"))['c'] ?? 0;
+$total_payouts  = mysqli_fetch_assoc(mysqli_query($conn,"SELECT COUNT(*) c FROM payout_requests WHERE status='pending'"))['c'] ?? 0;
+
+// ── VUTA WATUMIAJI WOTE ──
 $result = mysqli_query($conn, "
     SELECT u.id, u.username, u.email, u.phone, u.role, u.status, u.created_at,
-           MIN(mc.router_id) AS router_id
+           (SELECT GROUP_CONCAT(mc.router_id ORDER BY mc.router_id)
+              FROM mikrotik_configs mc WHERE mc.user_id = u.id)  AS router_ids,
+           (SELECT COUNT(*) FROM mikrotik_configs mc WHERE mc.user_id = u.id) AS router_count,
+           (SELECT COALESCE(SUM(v.price), 0) FROM vouchers v
+              WHERE v.user_id = u.id AND v.type = 'paid'
+                AND v.created_at >= DATE_FORMAT(NOW(), '%Y-%m-01')) AS mapato_mwezi,
+           (SELECT s.status FROM subscriptions s WHERE s.user_id = u.id
+              ORDER BY s.created_at DESC LIMIT 1) AS sub_status,
+           (SELECT s.expires_at FROM subscriptions s WHERE s.user_id = u.id
+              ORDER BY s.created_at DESC LIMIT 1) AS sub_expires,
+           (SELECT p.plan_name FROM subscriptions s LEFT JOIN subscription_plans p ON p.id = s.plan_id
+              WHERE s.user_id = u.id ORDER BY s.created_at DESC LIMIT 1) AS sub_plan_name,
+           (SELECT s.grace_until FROM subscriptions s WHERE s.user_id = u.id
+              ORDER BY s.created_at DESC LIMIT 1) AS sub_grace_until
     FROM users u
-    LEFT JOIN mikrotik_configs mc ON mc.user_id = u.id
-    GROUP BY u.id
     ORDER BY u.created_at DESC
+");
+
+// Jumla ya mapato ya reseller WOTE mwezi huu
+$mapato_wote_mwezi = mysqli_fetch_assoc(mysqli_query($conn, "
+    SELECT COALESCE(SUM(price), 0) AS total FROM vouchers
+    WHERE type = 'paid' AND created_at >= DATE_FORMAT(NOW(), '%Y-%m-01')
+"))['total'] ?? 0;
+
+// ── VUTA MAOMBI YA PAYOUT (PENDING) ──
+$payout_result = mysqli_query($conn, "
+    SELECT p.*, u.username 
+    FROM payout_requests p 
+    JOIN users u ON p.user_id = u.id 
+    WHERE p.status = 'pending' 
+    ORDER BY p.id DESC
 ");
 ?>
 <!DOCTYPE html>
@@ -111,7 +267,7 @@ body::before{content:'';position:fixed;inset:0;background:rgba(0,0,0,0.38);point
 .alert-pending i{color:#f59e0b;font-size:18px;flex-shrink:0}
 
 /* ── STAT CARDS ── */
-.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px}
+.stats-row{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:24px}
 .stat-card{background:var(--surface);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);border:1px solid var(--border2);border-radius:var(--radius);padding:18px;position:relative;overflow:hidden;transition:transform 0.2s,border-color 0.2s}
 .stat-card:hover{transform:translateY(-2px);border-color:var(--border)}
 .stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}
@@ -119,14 +275,16 @@ body::before{content:'';position:fixed;inset:0;background:rgba(0,0,0,0.38);point
 .stat-card.c2::before{background:linear-gradient(90deg,var(--accent2),transparent)}
 .stat-card.c3::before{background:linear-gradient(90deg,#f59e0b,transparent)}
 .stat-card.c4::before{background:linear-gradient(90deg,var(--red),transparent)}
+.stat-card.c5::before{background:linear-gradient(90deg,var(--accent3),transparent)}
 .stat-label{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-dim);font-family:'Space Mono',monospace;margin-bottom:8px}
-.stat-value{font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:#fff;line-height:1}
+.stat-value{font-family:'Syne',sans-serif;font-size:26px;font-weight:800;color:#fff;line-height:1}
 .stat-sub{font-size:11px;color:var(--text-dim);margin-top:5px}
 .stat-icon{position:absolute;right:16px;top:16px;font-size:22px;opacity:0.12}
 .stat-card.c1 .stat-icon{color:var(--accent)}
 .stat-card.c2 .stat-icon{color:var(--accent2)}
 .stat-card.c3 .stat-icon{color:#f59e0b}
 .stat-card.c4 .stat-icon{color:var(--red)}
+.stat-card.c5 .stat-icon{color:var(--accent3)}
 
 /* ── PANEL ── */
 .panel{background:var(--surface);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);border:1px solid var(--border2);border-radius:var(--radius);padding:24px;margin-bottom:24px;position:relative;overflow:hidden}
@@ -158,6 +316,9 @@ tbody tr.removing{opacity:0;transform:translateX(30px);pointer-events:none}
 .badge-approved{background:rgba(7,247,147,0.12);color:var(--accent);border:1px solid rgba(7,247,147,0.25)}
 .badge-pending {background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.30)}
 .badge-reset   {background:rgba(63,199,253,0.12);color:var(--accent2);border:1px solid rgba(63,199,253,0.25)}
+.badge-checking{background:rgba(255,255,255,0.08);color:var(--text-dim);border:1px solid rgba(255,255,255,0.15)}
+.badge-online  {background:rgba(7,247,147,0.12);color:var(--accent);border:1px solid rgba(7,247,147,0.25)}
+.badge-offline {background:rgba(255,61,87,0.12);color:var(--red,#ff3d57);border:1px solid rgba(255,61,87,0.25)}
 .badge-me      {background:rgba(255,107,53,0.15);color:var(--accent3);border:1px solid rgba(255,107,53,0.30);font-size:9px;padding:2px 7px;border-radius:4px;margin-left:6px;font-family:'Space Mono',monospace;font-weight:700}
 
 /* ── BUTTONS ── */
@@ -220,7 +381,8 @@ tbody tr.removing{opacity:0;transform:translateX(30px);pointer-events:none}
 .footer{text-align:center;padding:22px;font-size:11px;color:rgba(255,255,255,0.35);font-family:'Space Mono',monospace}
 
 /* ── RESPONSIVE ── */
-@media(max-width:900px){.stats-row{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:1024px){.stats-row{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:768px){.stats-row{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:600px){
     body{padding:12px}
     .stats-row{grid-template-columns:1fr 1fr}
@@ -242,7 +404,7 @@ tbody tr.removing{opacity:0;transform:translateX(30px);pointer-events:none}
 
 <div id="toastContainer"></div>
 
-<!-- Flash toast kutoka session (inakuja kutoka save_mikrotik.php n.k.) -->
+<!-- Flash toast kutoka session -->
 <?php if(isset($_SESSION['toast'])): ?>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -270,6 +432,9 @@ document.addEventListener('DOMContentLoaded', function() {
             <a href="user_dashboard.php" class="btn-nav gray">
                 <i class="fa-solid fa-chart-pie"></i> Billing
             </a>
+            <a href="admin_error_logs.php" class="btn-nav gray">
+                <i class="fa-solid fa-triangle-exclamation"></i> Error Logs
+            </a>
             <a href="logout.php" class="btn-nav red">
                 <i class="fa-solid fa-right-from-bracket"></i> Logout
             </a>
@@ -277,7 +442,7 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
 
     <!-- ── ALERT: Maombi Yanayosubiri ── -->
-    <?php if($total_pending > 0 || $total_resets > 0): ?>
+    <?php if($total_pending > 0 || $total_resets > 0 || $total_payouts > 0): ?>
     <div class="alert-pending">
         <i class="fa-solid fa-triangle-exclamation"></i>
         <div>
@@ -289,13 +454,18 @@ document.addEventListener('DOMContentLoaded', function() {
                     Usajili mpya: <strong><?php echo $total_pending; ?></strong>
                 </span>
             <?php endif; ?>
-            <?php if($total_pending > 0 && $total_resets > 0): ?>
-                &nbsp;·&nbsp;
-            <?php endif; ?>
             <?php if($total_resets > 0): ?>
+                &nbsp;·&nbsp;
                 <span style="color:var(--accent2);">
                     <i class="fa-solid fa-key" style="font-size:11px;"></i>
                     Password Reset: <strong><?php echo $total_resets; ?></strong>
+                </span>
+            <?php endif; ?>
+            <?php if($total_payouts > 0): ?>
+                &nbsp;·&nbsp;
+                <span style="color:var(--accent3);">
+                    <i class="fa-solid fa-hand-holding-dollar" style="font-size:11px;"></i>
+                    Cash Out Requests: <strong><?php echo $total_payouts; ?></strong>
                 </span>
             <?php endif; ?>
         </div>
@@ -322,15 +492,78 @@ document.addEventListener('DOMContentLoaded', function() {
             <div class="stat-sub">Usajili mpya</div>
             <i class="fa-solid fa-clock stat-icon"></i>
         </div>
-        <div class="stat-card c4">
-            <div class="stat-label">Pass Reset</div>
-            <div class="stat-value"><?php echo $total_resets; ?></div>
-            <div class="stat-sub">Wanasubiri reset</div>
-            <i class="fa-solid fa-key stat-icon"></i>
+        <div class="stat-card c5">
+            <div class="stat-label">Cash Out Requests</div>
+            <div class="stat-value"><?php echo $total_payouts; ?></div>
+            <div class="stat-sub">Yanayosubiri Malipo</div>
+            <i class="fa-solid fa-money-bill-transfer stat-icon"></i>
+        </div>
+        <div class="stat-card c1">
+            <div class="stat-label">Mapato Mwezi Huu</div>
+            <div class="stat-value" style="font-size:18px;">Tsh <?php echo number_format($mapato_wote_mwezi); ?></div>
+            <div class="stat-sub">Vocha za 'paid'</div>
+            <i class="fa-solid fa-sack-dollar stat-icon"></i>
         </div>
     </div>
 
-    <!-- ── MAIN TABLE ── -->
+    <!-- ── PAYOUT REQUESTS PANEL ── -->
+    <div class="panel" style="border-color: rgba(255,107,53,0.30);">
+        <div class="panel-title">
+            <h3><i class="fa-solid fa-money-bill-transfer" style="color:var(--accent3);"></i> Maombi ya Cash Out (Payout Requests)</h3>
+            <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--text-dim);">
+                <?php echo $total_payouts; ?> yanayosubiri
+            </span>
+        </div>
+
+        <div class="table-wrap">
+            <?php if (mysqli_num_rows($payout_result) == 0): ?>
+                <p style="text-align:center; color:var(--text-dim); padding:20px; font-size:13px;">
+                    <i class="fa-solid fa-circle-check" style="color:var(--accent);"></i> Hakuna maombi mapya ya Cash Out kwa sasa.
+                </p>
+            <?php else: ?>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Reseller</th>
+                            <th>Namba ya Simu</th>
+                            <th>Kiwango (TSh)</th>
+                            <th>Tarehe ya Ombi</th>
+                            <th>Status</th>
+                            <th>Vitendo</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    <?php 
+                    $p_no = 1;
+                    while($p = mysqli_fetch_assoc($payout_result)): 
+                    ?>
+                    <tr id="payout-row-<?php echo $p['id']; ?>">
+                        <td style="color:var(--text-dim);font-family:'Space Mono',monospace;font-size:11px;"><?php echo $p_no++; ?></td>
+                        <td><strong><?php echo htmlspecialchars($p['username']); ?></strong></td>
+                        <td style="font-family:'Space Mono',monospace;font-size:12px;color:var(--accent2);"><?php echo htmlspecialchars($p['phone_number']); ?></td>
+                        <td style="font-family:'Space Mono',monospace;font-size:13px;color:var(--accent);font-weight:700;">TSh <?php echo number_format($p['amount'], 2); ?></td>
+                        <td style="font-size:11px;color:var(--text-dim);"><?php echo date('d M Y, H:i', strtotime($p['created_at'])); ?></td>
+                        <td><span class="badge badge-pending">PENDING</span></td>
+                        <td>
+                            <div class="actions-wrap">
+                                <button class="btn btn-approve" onclick="funguaConfirm('payout_approve', <?php echo $p['id']; ?>, '<?php echo htmlspecialchars($p['username'], ENT_QUOTES); ?>', '<?php echo number_format($p['amount'], 2); ?>')">
+                                    <i class="fa-solid fa-check"></i> Approve
+                                </button>
+                                <button class="btn btn-delete" onclick="funguaConfirm('payout_reject', <?php echo $p['id']; ?>, '<?php echo htmlspecialchars($p['username'], ENT_QUOTES); ?>', '<?php echo number_format($p['amount'], 2); ?>')">
+                                    <i class="fa-solid fa-xmark"></i> Reject
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    <?php endwhile; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <!-- ── MAIN USERS TABLE ── -->
     <div class="panel">
         <div class="panel-title">
             <h3><i class="fa-solid fa-users-gear"></i> Orodha ya Watumiaji</h3>
@@ -357,7 +590,10 @@ document.addEventListener('DOMContentLoaded', function() {
                         <th>Tarehe ya Kujisajili</th>
                         <th>Status</th>
                         <th>Role</th>
-                        <th>Router ID</th>
+                        <th>Routers</th>
+                        <th>MikroTik</th>
+                        <th>Mapato Mwezi Huu</th>
+                        <th>Subscription</th>
                         <th>Vitendo</th>
                     </tr>
                 </thead>
@@ -369,7 +605,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     $role   = $row['role']   ?? 'user';
                     $status = $row['status'] ?? 'approved';
 
-                    // Status badge
                     if ($status === 'pending')
                         $status_badge = '<span class="badge badge-pending">PENDING</span>';
                     elseif ($status === 'pending_reset')
@@ -377,12 +612,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     else
                         $status_badge = '<span class="badge badge-approved">APPROVED</span>';
 
-                    // Role badge
                     $role_badge = ($role === 'admin')
                         ? '<span class="badge badge-admin">ADMIN</span>'
                         : '<span class="badge badge-user">USER</span>';
 
-                    // Tarehe ya kujisajili
                     $created = $row['created_at']
                         ? date('d M Y', strtotime($row['created_at']))
                         : '—';
@@ -409,14 +642,51 @@ document.addEventListener('DOMContentLoaded', function() {
                     <td><?php echo $status_badge; ?></td>
                     <td><?php echo $role_badge; ?></td>
                     <td style="font-family:'Space Mono',monospace;font-size:12px;">
-                        <?php if (!empty($row['router_id'])): ?>
-                            <span style="color:var(--accent);font-weight:700;cursor:pointer;" 
-                                  title="Bonyeza kunakili"
-                                  onclick="navigator.clipboard.writeText('<?php echo (int)$row['router_id']; ?>');showToast('Router ID imenakiliwa: <?php echo (int)$row['router_id']; ?>','info');">
-                                <?php echo (int)$row['router_id']; ?> <i class="fa-regular fa-copy" style="font-size:10px;opacity:0.6;"></i>
-                            </span>
+                        <?php if (!empty($row['router_ids'])):
+                            $rid_list = explode(',', $row['router_ids']);
+                        ?>
+                            <?php foreach ($rid_list as $rid): ?>
+                                <span style="color:var(--accent);font-weight:700;cursor:pointer;display:inline-block;margin:1px 3px 1px 0;"
+                                      title="Bonyeza kunakili"
+                                      onclick="navigator.clipboard.writeText('<?php echo (int)$rid; ?>');showToast('Router ID imenakiliwa: <?php echo (int)$rid; ?>','info');">
+                                    #<?php echo (int)$rid; ?>
+                                </span>
+                            <?php endforeach; ?>
+                            <div style="color:var(--text-dim);font-size:10px;"><?php echo (int)$row['router_count']; ?> router(s)</div>
                         <?php else: ?>
                             <span style="color:var(--text-muted);font-style:italic;">Hajasajili router</span>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <?php if (!empty($row['router_ids'])): ?>
+                            <span class="badge badge-checking mikrotik-status" data-uid="<?php echo (int)$row['id']; ?>" data-router-ids="<?php echo htmlspecialchars($row['router_ids']); ?>">
+                                <i class="fa-solid fa-circle-notch fa-spin"></i> Inakagua...
+                            </span>
+                        <?php else: ?>
+                            <span style="color:var(--text-muted);font-style:italic;font-size:11.5px;">—</span>
+                        <?php endif; ?>
+                    </td>
+                    <td style="font-family:'Space Mono',monospace;font-size:12px;color:var(--accent);font-weight:700;">
+                        Tsh <?php echo number_format($row['mapato_mwezi'] ?? 0); ?>
+                    </td>
+                    <td style="font-size:11px;">
+                        <?php
+                        $ss = $row['sub_status'] ?? null;
+                        $sub_colors = ['trial' => '#3fc7fd', 'active' => '#07f793', 'grace' => '#ffb020', 'expired' => '#ff5c5c'];
+                        $sub_color  = $sub_colors[$ss] ?? '#8fa89c';
+                        ?>
+                        <?php if ($ss): ?>
+                            <span style="color:<?php echo $sub_color; ?>;font-weight:700;text-transform:uppercase;"><?php echo htmlspecialchars($ss); ?></span>
+                            <?php if ($row['sub_plan_name']): ?>
+                                <div style="color:var(--text-dim);"><?php echo htmlspecialchars($row['sub_plan_name']); ?></div>
+                            <?php endif; ?>
+                            <?php if ($ss === 'grace' && $row['sub_grace_until']): ?>
+                                <div style="color:#ffb020;">hadi <?php echo date('d M Y', strtotime($row['sub_grace_until'])); ?></div>
+                            <?php elseif ($row['sub_expires']): ?>
+                                <div style="color:var(--text-dim);">hadi <?php echo date('d M Y', strtotime($row['sub_expires'])); ?></div>
+                            <?php endif; ?>
+                        <?php else: ?>
+                            <span style="color:var(--text-muted);font-style:italic;">—</span>
                         <?php endif; ?>
                     </td>
                     <td>
@@ -463,7 +733,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 </div>
 
-<footer class="footer">© <?php echo date('Y'); ?> Bin Waqas Wi-Fi System &nbsp;·&nbsp; Haki zote zimehifadhiwa</footer>
+<footer class="footer">© <?php echo date('Y'); ?> Tech 5G Wi-Fi System &nbsp;·&nbsp; Haki zote zimehifadhiwa</footer>
 
 <!-- ═══ MODAL: CONFIRM ACTION ═══ -->
 <div class="modal-overlay" id="confirmModal">
@@ -532,16 +802,26 @@ const modalConfigs = {
         icon: '🗑️', title: 'Futa Mtumiaji',
         msg: function(u){ return 'Una uhakika unataka kumfuta <strong>' + u + '</strong>?<br><small style="color:var(--red);">Kitendo hiki hakiwezi kurudishwa!</small>'; },
         btnClass: 'red', btnIcon: 'fa-trash-can', btnText: 'Ndiyo, Futa'
+    },
+    payout_approve: {
+        icon: '💰', title: 'Thibitisha Cash Out',
+        msg: function(u, amt){ return 'Unathibitisha kuwa umelipa TSh <strong>' + amt + '</strong> kwa reseller <strong>' + u + '</strong>?'; },
+        btnClass: 'green', btnIcon: 'fa-check', btnText: 'Ndiyo, Nimefanya Malipo'
+    },
+    payout_reject: {
+        icon: '❌', title: 'Kataa Cash Out',
+        msg: function(u, amt){ return 'Una uhakika unataka kukataa ombi la TSh <strong>' + amt + '</strong> la <strong>' + u + '</strong>?<br><small style="color:var(--accent);">Kiasi hiki kitarudishwa kwenye salio lake.</small>'; },
+        btnClass: 'red', btnIcon: 'fa-xmark', btnText: 'Ndiyo, Kataa & Rejesha'
     }
 };
 
-function funguaConfirm(action, id, username) {
+function funguaConfirm(action, id, username, extraParam = '') {
     pendingAction = action;
     pendingId     = id;
     const cfg = modalConfigs[action];
     document.getElementById('modalIcon').textContent   = cfg.icon;
     document.getElementById('modalTitle').textContent  = cfg.title;
-    document.getElementById('modalMsg').innerHTML      = cfg.msg(username);
+    document.getElementById('modalMsg').innerHTML      = cfg.msg(username, extraParam);
     document.getElementById('confirmBtn').className    = 'btn-confirm ' + cfg.btnClass;
     document.getElementById('confirmIcon').className   = 'fa-solid ' + cfg.btnIcon;
     document.getElementById('confirmText').textContent = cfg.btnText;
@@ -576,27 +856,31 @@ function tekelezaAction() {
         if (data.status === 'success') {
             showToast(data.msg, 'success');
 
+            if (action === 'payout_approve' || action === 'payout_reject') {
+                const pRow = document.getElementById('payout-row-' + id);
+                if (pRow) {
+                    pRow.classList.add('removing');
+                    setTimeout(function() { pRow.remove(); }, 420);
+                }
+                return;
+            }
+
             const row = document.getElementById('user-row-' + id);
             if (!row) return;
 
             if (action === 'delete') {
-                // Futa row kwa animation
                 row.classList.add('removing');
                 setTimeout(function() { row.remove(); }, 420);
 
             } else if (action === 'approve') {
-                // Badilisha status badge kuwa APPROVED
                 const statusCell = row.querySelector('td:nth-child(6)');
                 if (statusCell) statusCell.innerHTML = '<span class="badge badge-approved">APPROVED</span>';
-                // Ondoa kitufe cha approve/reset
                 const approveBtn = row.querySelector('.btn-approve, .btn-resetpass');
                 if (approveBtn) approveBtn.remove();
 
             } else if (action === 'make_admin') {
-                // Badilisha role badge kuwa ADMIN
                 const roleCell = row.querySelector('td:nth-child(7)');
                 if (roleCell) roleCell.innerHTML = '<span class="badge badge-admin">ADMIN</span>';
-                // Ondoa kitufe cha make_admin
                 const adminBtn = row.querySelector('.btn-makeadmin');
                 if (adminBtn) adminBtn.remove();
             }
@@ -608,6 +892,44 @@ function tekelezaAction() {
         showToast('Tatizo la mtandao. Jaribu tena.', 'error');
     });
 }
+
+// ══ HALI YA MIKROTIK KWA KILA MTUMIAJI ══
+(function() {
+    const badges = Array.from(document.querySelectorAll('.mikrotik-status[data-uid]'));
+    let i = 0;
+
+    function angaliaMmoja() {
+        if (i >= badges.length) return;
+        const badge = badges[i];
+        const uid = badge.getAttribute('data-uid');
+        const routerIds = badge.getAttribute('data-router-ids') || '';
+
+        fetch('admin.php?ajax_mikrotik_status=1&uid=' + encodeURIComponent(uid) + '&router_ids=' + encodeURIComponent(routerIds))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.status === 'success' && data.total > 0 && data.online === data.total) {
+                    badge.className = 'badge badge-online';
+                    badge.innerHTML = '<i class="fa-solid fa-circle" style="font-size:6px;"></i> ' + data.online + '/' + data.total + ' ONLINE';
+                } else if (data.status === 'success' && data.online > 0) {
+                    badge.className = 'badge badge-checking';
+                    badge.innerHTML = '<i class="fa-solid fa-circle" style="font-size:6px;"></i> ' + data.online + '/' + data.total + ' ONLINE';
+                } else {
+                    badge.className = 'badge badge-offline';
+                    badge.innerHTML = '<i class="fa-solid fa-circle" style="font-size:6px;"></i> OFFLINE';
+                }
+            })
+            .catch(function() {
+                badge.className = 'badge badge-offline';
+                badge.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="font-size:9px;"></i> HITILAFU';
+            })
+            .finally(function() {
+                i++;
+                angaliaMmoja();
+            });
+    }
+
+    if (badges.length > 0) angaliaMmoja();
+})();
 </script>
 
 </body>

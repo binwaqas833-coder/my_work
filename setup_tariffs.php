@@ -2,7 +2,7 @@
 session_start();
 include 'login_signup.php';
 require_once 'routeros_api.class.php';
-require_once 'mikrotik_helper.php';     // helper mpya (mysqli version)
+require_once 'mikrotik_helper.php';     // toleo JIPYA (multi-router)
 
 
 if (!isset($_SESSION['user_id'])) {
@@ -10,11 +10,30 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
-$my_id = $_SESSION['user_id'];
+$my_id = (int)$_SESSION['user_id'];
 
-// ── KAMA TAYARI ANA TARIFFS, MPELEKE DASHBOARD MOJA KWA MOJA ──
-$check = $conn->prepare("SELECT COUNT(*) as c FROM tariffs WHERE user_id = ?");
-$check->bind_param("i", $my_id);
+// ── MUHIMU (MULTI-ROUTER): setup ya bei sasa ni per-router, siyo per-user.
+// Kama hana router yoyote bado, lazima aende my_mikrotiks.php kwanza -
+// haiwezekani kuweka tariffs bila kujua ni router ipi. ──
+$router_id = (int)($_SESSION['active_router_id'] ?? 0);
+if ($router_id > 0) {
+    $own_chk = $conn->prepare("SELECT router_id FROM mikrotik_configs WHERE router_id=? AND user_id=?");
+    $own_chk->bind_param("ii", $router_id, $my_id);
+    $own_chk->execute();
+    if ($own_chk->get_result()->num_rows === 0) {
+        $router_id = 0;
+        unset($_SESSION['active_router_id']);
+    }
+    $own_chk->close();
+}
+if ($router_id <= 0) {
+    header("Location: my_mikrotiks.php");
+    exit();
+}
+
+// ── KAMA ROUTER HII TAYARI INA TARIFFS, MPELEKE DASHBOARD MOJA KWA MOJA ──
+$check = $conn->prepare("SELECT COUNT(*) as c FROM tariffs WHERE router_id = ?");
+$check->bind_param("i", $router_id);
 $check->execute();
 $has_tariffs = $check->get_result()->fetch_assoc()['c'] > 0;
 
@@ -22,6 +41,13 @@ if ($has_tariffs) {
     header("Location: user_dashboard.php");
     exit();
 }
+
+// Jina la router hii (kwa ajili ya UI - "unaweka bei za Router X")
+$rl_stmt = $conn->prepare("SELECT router_label FROM mikrotik_configs WHERE router_id = ?");
+$rl_stmt->bind_param("i", $router_id);
+$rl_stmt->execute();
+$router_label = $rl_stmt->get_result()->fetch_assoc()['router_label'] ?? 'Router Yako';
+$rl_stmt->close();
 ?>
 <!DOCTYPE html>
 <html lang="sw">
@@ -132,9 +158,9 @@ body::before{content:'';position:fixed;inset:0;background:rgba(0,0,0,0.45);z-ind
     <div class="card">
         <div class="head">
             <div class="icon"><i class="fa-solid fa-tags"></i></div>
-            <h1>Karibu! Weka Bei za Vifurushi Vyako</h1>
-            <p>Kabla ya kuingia kwenye dashboard, weka bei za vifurushi vitatu vya msingi.
-               Unaweza kuvibadilisha wakati wowote baadaye kwenye Mipangilio.</p>
+            <h1>Weka Bei za Vifurushi Vyako</h1>
+            <p>Kwa router: <strong style="color:var(--accent);"><?php echo htmlspecialchars($router_label); ?></strong> —
+               weka bei za vifurushi vitatu vya msingi. Unaweza kuvibadilisha wakati wowote baadaye kwenye Mipangilio.</p>
         </div>
 
         <form id="tariffSetupForm">
@@ -320,7 +346,7 @@ function confirmSkip() {
     fungaModal('skipModal');
     showToast('Sawa, unaelekezwa kwenye dashboard...', 'info');
     setTimeout(() => {
-        window.location.href = 'user_dashboard.php?skip_setup=1';
+        window.location.href = 'user_dashboard.php';
     }, 900);
 }
 </script>

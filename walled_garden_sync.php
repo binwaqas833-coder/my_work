@@ -3,9 +3,13 @@
  * walled_garden_sync.php — CLI TU
  * ------------------------------------------------------------------
  * Hakikisha kila router iliyosajiliwa ina walled-garden inayoruhusu
- * portal yetu KABLA mteja hajalipa. Bila hizi, mteja anayeunganisha
- * anaona ukurasa mtupu: login.html inamhamishia tech5g.co.tz lakini
- * hotspot inazuia traffic hiyo kwa sababu hajalogin bado.
+ * portal yetu KABLA mteja hajalipa.
+ *
+ * MUHIMU (MULTI-ROUTER): query hapa chini TAYARI inapitia kila ROUTER
+ * (siyo kila USER) - ndiyo maana haihitaji kubadilika sana; ilikuwa
+ * tayari sahihi kimuundo. Kilichobadilika ni jinsi getMikrotikConnection()
+ * inavyoitwa - sasa inahitaji router_id NA user_id (siyo user_id peke
+ * yake), kwa sababu reseller mmoja anaweza kuwa na routers kadhaa.
  *
  * Matumizi (kwenye VPS):
  *   set -a; . /root/.tech5g-credentials; set +a
@@ -22,8 +26,6 @@ if (PHP_SAPI !== 'cli') {
     die('CLI only.');
 }
 
-// Ruhusu ku-endeshwa hata ikiwa nakala ya script iko nje ya webroot (mfano /tmp).
-// TECH5G_DIR inaweza kuwekwa kama env; vinginevyo tunatumia folda ya script au webroot.
 $APP_DIR = getenv('TECH5G_DIR') ?: __DIR__;
 if (!file_exists($APP_DIR . '/login_signup.php') && file_exists('/var/www/tech5g/login_signup.php')) {
     $APP_DIR = '/var/www/tech5g';
@@ -31,11 +33,9 @@ if (!file_exists($APP_DIR . '/login_signup.php') && file_exists('/var/www/tech5g
 chdir($APP_DIR);
 require_once $APP_DIR . '/login_signup.php';       // config.php + $conn
 require_once $APP_DIR . '/routeros_api.class.php';
-require_once $APP_DIR . '/mikrotik_helper.php';
+require_once $APP_DIR . '/error_logger.php';
+require_once $APP_DIR . '/mikrotik_helper.php';     // toleo JIPYA (multi-router)
 
-// ── Host zinazohitajika na mteja KABLA ya kulipa ──
-// Kila moja ina sababu: bila sababu, usiiongeze (walled-garden pana =
-// mtu anavinjari bure bila kulipa).
 $HOSTS = [
     'tech5g.co.tz'         => 'Portal yenyewe (index_backup.php)',
     '*.tech5g.co.tz'       => 'Subdomain zozote za portal',
@@ -48,7 +48,6 @@ $HOSTS = [
     'api.whatsapp.com'     => 'wa.me hu-redirect hapa',
 ];
 
-// ── IP zinazohitajika (ngazi ya IP - hufanya kazi hata HTTPS/SNI ikishindikana) ──
 $IPS = [
     '107.161.168.192' => 'Tech5G backend (VPS)',
 ];
@@ -61,7 +60,9 @@ foreach ($argv as $a) {
 
 echo $apply ? "MODE: APPLY (inabadilisha router)\n\n" : "MODE: DRY-RUN (hakuna kinachobadilishwa; ongeza --apply)\n\n";
 
-$sql = "SELECT router_id, user_id, mikrotik_ip FROM mikrotik_configs";
+// Query hii TAYARI ni per-router (siyo per-user) - inapitia kila ROW
+// ya mikrotik_configs, ambayo sasa inaweza kuwa nyingi kwa user mmoja.
+$sql = "SELECT router_id, user_id, mikrotik_ip, router_label FROM mikrotik_configs";
 if ($only > 0) { $sql .= " WHERE router_id = " . $only; }
 $sql .= " ORDER BY router_id";
 
@@ -69,16 +70,19 @@ $res    = $conn->query($sql);
 $jumla  = ['ok' => 0, 'imeshindikana' => 0, 'imeongezwa' => 0];
 
 while ($cfg = $res->fetch_assoc()) {
-    printf("=== Router %d (user %d) · %s ===\n", $cfg['router_id'], $cfg['user_id'], $cfg['mikrotik_ip']);
+    printf("=== Router %d (user %d, '%s') · %s ===\n", $cfg['router_id'], $cfg['user_id'], $cfg['router_label'], $cfg['mikrotik_ip']);
 
-    $API = getMikrotikConnection($cfg['user_id'], $conn);
+    // MUHIMU: sasa inahitaji router_id NA user_id (toleo jipya la helper)
+    $API = getMikrotikConnection($cfg['router_id'], $cfg['user_id'], $conn);
     if (!$API) {
         echo "  !! Muunganisho wa API umeshindikana - imerukwa\n\n";
         $jumla['imeshindikana']++;
+        logSystemError($conn, 'walled_garden_sync.php', "Muunganisho umeshindikana kwa router_id={$cfg['router_id']}", [
+            'user_id' => $cfg['user_id'], 'router_id' => $cfg['router_id'],
+        ]);
         continue;
     }
 
-    // Zilizopo sasa
     $zilizopo_host = [];
     foreach ($API->comm('/ip/hotspot/walled-garden/print') as $w) {
         if (is_array($w) && isset($w['dst-host'])) { $zilizopo_host[$w['dst-host']] = true; }

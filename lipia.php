@@ -5,24 +5,26 @@
  * Inapokea fomu kutoka index_backup.php, inaanzisha malipo (kwa sasa MOCK
  * ya AzamPay), na kuhifadhi rekodi ya "pending" kwenye payment_transactions.
  *
- * MUHIMU: HAITENGENEZI VOUCHER MOJA KWA MOJA hapa - hilo linatokea ndani ya
- * payment_helper.php::completeVoucherPayment(), inayoitwa TU baada ya malipo
- * kuthibitika kukamilika kweli (mock-timer kwa sasa, webhook halisi baadaye).
- * Ukurasa unaoonekana hapa ni "kusubiri" wenye JS inayo-poll
- * check_payment_status.php kila sekunde chache mpaka voucher iwe tayari.
+ * MUHIMU (MULTI-ROUTER): sasa inapokea router_id pia (siyo user_id peke
+ * yake) - tariff HALISI (chanzo cha ukweli) inatafutwa kwa router_id,
+ * na router_id inahifadhiwa kwenye payment_transactions ili
+ * payment_helper.php ijue vocha itengenezwe/kupandishwe router ipi.
+ *
+ * HAITENGENEZI VOUCHER MOJA KWA MOJA hapa - hilo linatokea ndani ya
+ * payment_helper.php::completeVoucherPayment().
  * -------------------------------------------------------------
  */
 
 session_start();
 include 'login_signup.php';
-require_once 'payment_helper.php'; // inaleta pia routeros_api.class.php na mikrotik_helper.php
+require_once 'payment_helper.php';
 
 // ── 1. POKEA DATA KUTOKA FOMU YA index_backup.php ──
 $package_type = strtolower(trim($_POST['package_type'] ?? ''));
 $user_id      = intval($_POST['user_id'] ?? 0);
+$router_id    = intval($_POST['router_id'] ?? 0);
 $namba_simu   = trim($_POST['namba_simu'] ?? '');
 
-// Taarifa za MikroTik zilizonaswa na index_backup.php kwenye session
 $client_mac = $_SESSION['client_mac'] ?? '';
 $client_ip  = $_SESSION['client_ip']  ?? '';
 
@@ -40,43 +42,49 @@ function onyeshaUkurasaWaHitilafu($ujumbe) {
 }
 
 // ── 2. VALIDATION YA MSINGI ──
-if (empty($package_type) || $user_id <= 0 || empty($namba_simu)) {
+if (empty($package_type) || $user_id <= 0 || $router_id <= 0 || empty($namba_simu)) {
     onyeshaUkurasaWaHitilafu("Taarifa za malipo hazijakamilika. Tafadhali rudi nyuma na ujaze fomu kwa usahihi.");
 }
 if (!preg_match('/^0[67]\d{8}$/', $namba_simu)) {
     onyeshaUkurasaWaHitilafu("Namba ya simu '$namba_simu' si sahihi. Tumia muundo: 07XXXXXXXX.");
 }
 
-// ── 3. TAFUTA TARIFF HALISI (chanzo cha ukweli - siyo bei kutoka form) ──
-$t_stmt = $conn->prepare("SELECT * FROM tariffs WHERE user_id = ? AND package_type = ? LIMIT 1");
-$t_stmt->bind_param("is", $user_id, $package_type);
+// ── 3. THIBITISHA router_id HII KWELI NI YA user_id HII (usalama) ──
+$rc_stmt = $conn->prepare("SELECT router_id FROM mikrotik_configs WHERE router_id = ? AND user_id = ? LIMIT 1");
+$rc_stmt->bind_param("ii", $router_id, $user_id);
+$rc_stmt->execute();
+if ($rc_stmt->get_result()->num_rows === 0) {
+    $rc_stmt->close();
+    onyeshaUkurasaWaHitilafu("Router hii haipatikani. Tafadhali rudi nyuma na ujaribu tena.");
+}
+$rc_stmt->close();
+
+// ── 4. TAFUTA TARIFF HALISI - sasa kwa router_id (chanzo cha ukweli) ──
+$t_stmt = $conn->prepare("SELECT * FROM tariffs WHERE router_id = ? AND package_type = ? LIMIT 1");
+$t_stmt->bind_param("is", $router_id, $package_type);
 $t_stmt->execute();
 $tariff = $t_stmt->get_result()->fetch_assoc();
 $t_stmt->close();
 
 if (!$tariff) {
-    onyeshaUkurasaWaHitilafu("Kifurushi hicho hakipatikani kwa mtoa huduma huyu. Tafadhali rudi nyuma na uchague tena.");
+    onyeshaUkurasaWaHitilafu("Kifurushi hicho hakipatikani kwa router hii. Tafadhali rudi nyuma na uchague tena.");
 }
 $price = (float)$tariff['price'];
 
-// ── 4. TENGENEZA REJEA YA KIPEKEE YA TRANSACTION ──
+// ── 5. TENGENEZA REJEA YA KIPEKEE YA TRANSACTION ──
 $transaction_id = 'TXN-' . strtoupper(bin2hex(random_bytes(6)));
 
-// ── 5. HIFADHI KAMA "PENDING" (bado si voucher - malipo hayajathibitika) ──
+// ── 6. HIFADHI KAMA "PENDING" (bado si voucher - malipo hayajathibitika) ──
 $ins = $conn->prepare("
-    INSERT INTO payment_transactions (user_id, phone, package_type, amount, transaction_id, status, client_mac, client_ip)
-    VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
+    INSERT INTO payment_transactions (user_id, router_id, phone, package_type, amount, transaction_id, status, client_mac, client_ip)
+    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
 ");
-$ins->bind_param("issdsss", $user_id, $namba_simu, $package_type, $price, $transaction_id, $client_mac, $client_ip);
+$ins->bind_param("iissdsss", $user_id, $router_id, $namba_simu, $package_type, $price, $transaction_id, $client_mac, $client_ip);
 $ins->execute();
 $ins->close();
 
 /**
- * ⚠️ MOCK - AzamPay halisi itawekwa hapa. Mara utapopata Client ID na
- * Client Secret, badilisha mwili wa function hii kuzungumza na API halisi
- * (POST kwenda checkout endpoint ya AzamPay ikitumia $transaction_id kama
- * externalId). Ukurasa wa kusubiri chini na check_payment_status.php
- * HAVITAHITAJI KUBADILIKA.
+ * ⚠️ MOCK - AzamPay halisi itawekwa hapa.
  */
 function tumaUSSDPush($namba_simu, $kiasi, $transaction_id) {
     return ['success' => true, 'message' => 'USSD Push imetumwa (MOCK).'];
@@ -89,7 +97,7 @@ if (!$malipo['success']) {
     onyeshaUkurasaWaHitilafu("Imeshindikana kuanzisha malipo: " . $malipo['message']);
 }
 
-// ── 6. ONYESHA UKURASA WA "KUSUBIRI MALIPO" (JS itapoll hadi ikamilike) ──
+// ── 7. ONYESHA UKURASA WA "KUSUBIRI MALIPO" (JS itapoll hadi ikamilike) ──
 ?>
 <!DOCTYPE html>
 <html lang="sw">
@@ -121,7 +129,7 @@ if (!$malipo['success']) {
 <script>
 const REF = <?php echo json_encode($transaction_id); ?>;
 let jaribio = 0;
-const MAX_JARIBIO = 40; // ~ dakika mbili (40 x sekunde 3)
+const MAX_JARIBIO = 40;
 
 function angaliaHaliYaMalipo() {
     jaribio++;
@@ -162,7 +170,7 @@ function onyeshaHitilafu(ujumbe) {
     `;
 }
 
-setTimeout(angaliaHaliYaMalipo, 2000); // subiri kidogo kabla ya poll ya kwanza
+setTimeout(angaliaHaliYaMalipo, 2000);
 </script>
 </body>
-</html>
+</html>pay

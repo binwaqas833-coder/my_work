@@ -65,9 +65,25 @@ if (isset($conn)) {
     }
     $stmt->close();
 
-    $query_bei = "SELECT package_type, price FROM tariffs WHERE user_id = ?";
-    $stmt2 = $conn->prepare($query_bei);
-    $stmt2->bind_param("i", $user_id);
+    // ── MUHIMU (MULTI-ROUTER): bei ZINATEGEMEA ROUTER MAALUM aliyounganishwa
+    // nayo mteja (routers tofauti za reseller huyu huyu zinaweza kuwa na
+    // bei tofauti - ndiyo maana query hii SASA ni WHERE router_id=?, siyo
+    // WHERE user_id=? peke yake, la sivyo mteja anaweza kuona bei za
+    // router isiyokuwa hii kama reseller ana routers kadhaa. ──
+    if (!empty($router_id)) {
+        $query_bei = "SELECT package_type, price FROM tariffs WHERE router_id = ?";
+        $stmt2 = $conn->prepare($query_bei);
+        $stmt2->bind_param("i", $router_id);
+    } else {
+        // Hakuna router_id kwenye ombi hili (mfano kutembelea moja kwa moja
+        // bila kupitia captive portal) - tumia router ya kwanza ya user huyu
+        // kama default salama, badala ya kuvunja ukurasa.
+        $query_bei = "SELECT t.package_type, t.price FROM tariffs t
+                       JOIN mikrotik_configs mc ON mc.router_id = t.router_id
+                       WHERE mc.user_id = ? ORDER BY t.router_id ASC LIMIT 3";
+        $stmt2 = $conn->prepare($query_bei);
+        $stmt2->bind_param("i", $user_id);
+    }
     $stmt2->execute();
     $result_bei = $stmt2->get_result();
 
@@ -278,7 +294,7 @@ if (isset($conn)) {
             border-radius: 10px;
             padding: 13px 14px;
             font-family: inherit;
-            font-size: 14px;
+            font-size: 16px; /* 16px (siyo 14px) huzuia iOS Safari kufanya auto-zoom wakati wa kubofya input */
             margin-bottom: 10px;
             background: rgba(255,255,255,0.95);
         }
@@ -430,6 +446,7 @@ if (isset($conn)) {
             <input type="hidden" name="kifurushi_kichaguliwa" id="kifurushi_id" value="<?php echo $p_siku; ?>">
             <input type="hidden" name="package_type" id="package_type_input" value="daily">
             <input type="hidden" name="user_id" value="<?php echo (int)$user_id; ?>">
+            <input type="hidden" name="router_id" value="<?php echo (int)($router_id ?? 0); ?>">
 
             <div class="kiboksi active" onclick="chaguaKifurushi(this, '<?php echo $p_siku; ?>', '<?php echo number_format($p_siku); ?>', 'daily')">
                 <div class="alama-check">&#10003;</div>
@@ -494,6 +511,8 @@ if (isset($conn)) {
         <div class="sehemu-vocha">
             <p class="kichwa-sehemu" data-translate="tayari_vocha" style="margin-top:0;">Tayari una Vocha?</p>
             <form action="unganisha_vocha.php" method="POST" id="form-vocha" class="input-vocha-container">
+                <input type="hidden" name="router_id" value="<?php echo (int)($router_id ?? 0); ?>">
+                <input type="hidden" name="user_id" value="<?php echo (int)$user_id; ?>">
                 <input type="text" name="kodi_vocha" id="kodi_vocha" placeholder="Ingiza namba ya vocha hapa">
                 <button type="submit" class="btn-unganisha" data-translate="unganisha_btn">Unganisha</button>
             </form>
@@ -503,6 +522,8 @@ if (isset($conn)) {
         <div class="sehemu-trial">
             <p class="kichwa-sehemu" style="margin-top:0;" data-translate="jaribu_kichwa">Mteja Mpya? Jaribu Bure</p>
             <form action="trial_handler.php" method="POST">
+                <input type="hidden" name="router_id" value="<?php echo (int)($router_id ?? 0); ?>">
+                <input type="hidden" name="user_id" value="<?php echo (int)$user_id; ?>">
                 <button type="submit" class="btn-trial" data-translate="jaribu_btn">Jaribu Dakika 5 Bure</button>
             </form>
         </div>

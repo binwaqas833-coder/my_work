@@ -1,6 +1,9 @@
 <?php
 session_start();
 include 'login_signup.php';
+require_once 'error_logger.php';
+require_once 'mikrotik_helper.php'; // toleo JIPYA (multi-router) - lazima liwepo kabla ya kutumika hapa chini
+require_once 'subscription_helper.php';
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: index.php");
@@ -9,12 +12,50 @@ if (!isset($_SESSION['user_id'])) {
 
 $my_id = $_SESSION['user_id'];
 
-// ── AJAX: FUTA VOCHA ──
+// ── MUHIMU: SUBSCRIPTION GATE — HAIMHUSU ADMIN (Admin ana routers zake
+// mwenyewe lakini halazimiki kulipia subscription). Kwa resellers wengine:
+// 'expired' inazuia dashboard hii (routers zake zinaendelea kufanya kazi
+// kwa wateja, kizuizi ni PHP tu). 'grace' inaruhusiwa kuendelea lakini
+// tunaonyesha banner ya onyo juu. ──
+$is_admin = (($_SESSION['role'] ?? '') === 'admin');
+
+if ($is_admin) {
+    $subscription_info = ['status' => 'active', 'plan_name' => null, 'max_routers' => PHP_INT_MAX, 'expires_at' => null, 'grace_until' => null];
+} else {
+    $subscription_info = getSubscriptionStatus($conn, $my_id);
+    if ($subscription_info['status'] === 'expired') {
+        header("Location: subscribe.php");
+        exit();
+    }
+}
+
+// ── MUHIMU: MULTI-ROUTER — dashboard nzima inaonyesha data ya router
+// "active" ya sasa pekee. Kama hakuna router iliyochaguliwa (au bado
+// hana router yoyote), mpeleke "My Mikrotiks" kwanza.
+$router_id = (int)($_SESSION['active_router_id'] ?? 0);
+if ($router_id > 0) {
+    // Thibitisha router hii bado ni yake (usalama - session inaweza kubaki
+    // na router_id ya zamani kama ilifutwa)
+    $own_chk = $conn->prepare("SELECT router_id FROM mikrotik_configs WHERE router_id=? AND user_id=?");
+    $own_chk->bind_param("ii", $router_id, $my_id);
+    $own_chk->execute();
+    if ($own_chk->get_result()->num_rows === 0) {
+        $router_id = 0;
+        unset($_SESSION['active_router_id']);
+    }
+    $own_chk->close();
+}
+if ($router_id <= 0) {
+    header("Location: my_mikrotiks.php");
+    exit();
+}
+
+// ── AJAX: FUTA VOCHA (legacy inline handler - sasa scoped kwa router_id pia) ──
 if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['vu_action']) && $_POST['vu_action']==='delete') {
     header('Content-Type: application/json');
     $vid = (int)$_POST['id'];
-    $d = $conn->prepare("DELETE FROM vouchers WHERE id=? AND user_id=?");
-    $d->bind_param("ii", $vid, $my_id);
+    $d = $conn->prepare("DELETE FROM vouchers WHERE id=? AND user_id=? AND router_id=?");
+    $d->bind_param("iii", $vid, $my_id, $router_id);
     $d->execute();
     echo json_encode(['status' => $d->affected_rows > 0 ? 'success' : 'error']);
     exit();
@@ -25,25 +66,25 @@ $today       = date('Y-m-d');
 $start_week  = date('Y-m-d', strtotime('monday this week'));
 $start_month = date('Y-m-01');
 
-$q1 = mysqli_query($conn,"SELECT SUM(price) as total FROM vouchers WHERE user_id='$my_id' AND type='paid' AND DATE(created_at)='$today'");
+$q1 = mysqli_query($conn,"SELECT SUM(price) as total FROM vouchers WHERE user_id='$my_id' AND router_id='$router_id' AND type='paid' AND DATE(created_at)='$today'");
 $d1 = mysqli_fetch_assoc($q1);
-$q2 = mysqli_query($conn,"SELECT SUM(price) as total FROM vouchers WHERE user_id='$my_id' AND type='paid' AND created_at>='$start_week'");
+$q2 = mysqli_query($conn,"SELECT SUM(price) as total FROM vouchers WHERE user_id='$my_id' AND router_id='$router_id' AND type='paid' AND created_at>='$start_week'");
 $d2 = mysqli_fetch_assoc($q2);
-$q3 = mysqli_query($conn,"SELECT SUM(price) as total FROM vouchers WHERE user_id='$my_id' AND type='paid' AND created_at>='$start_month'");
+$q3 = mysqli_query($conn,"SELECT SUM(price) as total FROM vouchers WHERE user_id='$my_id' AND router_id='$router_id' AND type='paid' AND created_at>='$start_month'");
 $d3 = mysqli_fetch_assoc($q3);
-$q4 = mysqli_query($conn,"SELECT COUNT(*) as total FROM vouchers WHERE user_id='$my_id' AND status='used'");
+$q4 = mysqli_query($conn,"SELECT COUNT(*) as total FROM vouchers WHERE user_id='$my_id' AND router_id='$router_id' AND status='used'");
 $d4 = mysqli_fetch_assoc($q4);
 
 // ── MIKROTIK + WATEJA ACTIVE ──
 require_once('routeros_api.class.php');
-require_once('mikrotik_helper.php'); // functions: getMikrotikConnection(), getActiveHotspotUsers(), n.k.
+// mikrotik_helper.php tayari ime-require'iwa juu (kabla ya redirect check)
 
 $count = 0;
 $last_seen = null;
 $active_users_list = [];
 $mikrotik_ip = ''; // inatumika chini kwenye kadi ya "Hali ya MikroTik"
 
-$MK_API = getMikrotikConnection($my_id, $conn);
+$MK_API = getMikrotikConnection($router_id, $my_id, $conn);
 $mikrotik_online = false; // hii ndiyo hali HALISI ya connection, si kama IP tu ipo DB
 if ($MK_API) {
     $mikrotik_online = true;
@@ -52,17 +93,23 @@ if ($MK_API) {
     $MK_API->disconnect();
 }
 
-// IP ya MikroTik (kwa ajili ya status badge tu, hatuhitaji password/user hapa)
+// Taarifa za router "active" ya sasa (jina + IP kwa ajili ya status badge)
 $mikrotik_router_id = '';
-$cfg_ip_q = $conn->query("SELECT mikrotik_ip, router_id FROM mikrotik_configs WHERE user_id='$my_id' LIMIT 1");
-if ($cfg_ip_q && $cfg_ip_q->num_rows > 0) {
-    $cfg_row = $cfg_ip_q->fetch_assoc();
+$router_label       = '';
+$cfg_ip_q = $conn->prepare("SELECT mikrotik_ip, router_id, router_label FROM mikrotik_configs WHERE router_id=? AND user_id=? LIMIT 1");
+$cfg_ip_q->bind_param("ii", $router_id, $my_id);
+$cfg_ip_q->execute();
+$cfg_res = $cfg_ip_q->get_result();
+if ($cfg_res && $cfg_res->num_rows > 0) {
+    $cfg_row = $cfg_res->fetch_assoc();
     $mikrotik_ip        = $cfg_row['mikrotik_ip'] ?? '';
     $mikrotik_router_id = $cfg_row['router_id'] ?? '';
+    $router_label       = $cfg_row['router_label'] ?? '';
 }
+$cfg_ip_q->close();
 
 // ── LAST SEEN ──
-$q_last = mysqli_query($conn,"SELECT created_at FROM vouchers WHERE user_id='$my_id' AND status='used' ORDER BY created_at DESC LIMIT 1");
+$q_last = mysqli_query($conn,"SELECT created_at FROM vouchers WHERE user_id='$my_id' AND router_id='$router_id' AND status='used' ORDER BY created_at DESC LIMIT 1");
 if ($q_last && mysqli_num_rows($q_last)>0) {
     $last_seen = mysqli_fetch_assoc($q_last)['created_at'];
 }
@@ -72,23 +119,23 @@ $grafu_labels = []; $grafu_data = [];
 for ($i=6; $i>=0; $i--) {
     $siku = date('Y-m-d', strtotime("-$i days"));
     $grafu_labels[] = ['Jpi','Jtt','Jnn','Jtno','Alh','Ij','Jmo'][date('w', strtotime($siku))];
-    $qg = mysqli_query($conn,"SELECT SUM(price) as total FROM vouchers WHERE user_id='$my_id' AND type='paid' AND DATE(created_at)='$siku'");
+    $qg = mysqli_query($conn,"SELECT SUM(price) as total FROM vouchers WHERE user_id='$my_id' AND router_id='$router_id' AND type='paid' AND DATE(created_at)='$siku'");
     $grafu_data[] = (int)(mysqli_fetch_assoc($qg)['total'] ?? 0);
 }
 
 // ── TARIFFS ──
-$t_stmt = $conn->prepare("SELECT * FROM tariffs WHERE user_id=? ORDER BY price ASC");
-$t_stmt->bind_param("i", $my_id);
+$t_stmt = $conn->prepare("SELECT * FROM tariffs WHERE user_id=? AND router_id=? ORDER BY price ASC");
+$t_stmt->bind_param("ii", $my_id, $router_id);
 $t_stmt->execute();
 $tariffs_result = $t_stmt->get_result();
 
 // ── VOCHA MFUMO: DATA ──
 $vm_stats = [];
-$vm_stats['total']  = $conn->query("SELECT COUNT(*) c FROM vouchers WHERE user_id='$my_id'")->fetch_assoc()['c'] ?? 0;
-$vm_stats['unused'] = $conn->query("SELECT COUNT(*) c FROM vouchers WHERE user_id='$my_id' AND status='unused'")->fetch_assoc()['c'] ?? 0;
-$vm_stats['used']   = $conn->query("SELECT COUNT(*) c FROM vouchers WHERE user_id='$my_id' AND status='used'")->fetch_assoc()['c'] ?? 0;
-$vm_stats['synced'] = $conn->query("SELECT COUNT(*) c FROM vouchers WHERE user_id='$my_id' AND mikrotik_synced=1")->fetch_assoc()['c'] ?? 0;
-$vm_list = $conn->query("SELECT * FROM vouchers WHERE user_id='$my_id' ORDER BY created_at DESC LIMIT 200");
+$vm_stats['total']  = $conn->query("SELECT COUNT(*) c FROM vouchers WHERE user_id='$my_id' AND router_id='$router_id'")->fetch_assoc()['c'] ?? 0;
+$vm_stats['unused'] = $conn->query("SELECT COUNT(*) c FROM vouchers WHERE user_id='$my_id' AND router_id='$router_id' AND status='unused'")->fetch_assoc()['c'] ?? 0;
+$vm_stats['used']   = $conn->query("SELECT COUNT(*) c FROM vouchers WHERE user_id='$my_id' AND router_id='$router_id' AND status='used'")->fetch_assoc()['c'] ?? 0;
+$vm_stats['synced'] = $conn->query("SELECT COUNT(*) c FROM vouchers WHERE user_id='$my_id' AND router_id='$router_id' AND mikrotik_synced=1")->fetch_assoc()['c'] ?? 0;
+$vm_list = $conn->query("SELECT * FROM vouchers WHERE user_id='$my_id' AND router_id='$router_id' ORDER BY created_at DESC LIMIT 200");
 
 // ── MIPANGILIO: TAARIFA ZA AKAUNTI ──
 $acc_stmt = $conn->prepare("SELECT username, email, phone, alert_email, notify_station_offline, created_at FROM users WHERE id = ?");
@@ -97,14 +144,14 @@ $acc_stmt->execute();
 $account = $acc_stmt->get_result()->fetch_assoc();
 
 // ── MIPANGILIO: MIKROTIK STATUS (READ-ONLY) ──
-$mk_stmt = $conn->prepare("SELECT mikrotik_ip, allowed_ips FROM mikrotik_configs WHERE user_id = ?");
-$mk_stmt->bind_param("i", $my_id);
+$mk_stmt = $conn->prepare("SELECT mikrotik_ip, allowed_ips, router_label FROM mikrotik_configs WHERE router_id = ? AND user_id = ?");
+$mk_stmt->bind_param("ii", $router_id, $my_id);
 $mk_stmt->execute();
 $mikrotik_info = $mk_stmt->get_result()->fetch_assoc();
 
 // ── MIPANGILIO: TARIFFS ZOTE (kwa CRUD) ──
-$mp_tariffs_stmt = $conn->prepare("SELECT * FROM tariffs WHERE user_id = ? ORDER BY price ASC");
-$mp_tariffs_stmt->bind_param("i", $my_id);
+$mp_tariffs_stmt = $conn->prepare("SELECT * FROM tariffs WHERE user_id = ? AND router_id = ? ORDER BY price ASC");
+$mp_tariffs_stmt->bind_param("ii", $my_id, $router_id);
 $mp_tariffs_stmt->execute();
 $mp_tariffs = $mp_tariffs_stmt->get_result();
 
@@ -137,16 +184,16 @@ if ($st_result && $st_result->num_rows > 0) {
 }
 
 // ── QUERIES ZA TABLES ──
-$vocha_query   = mysqli_query($conn,"SELECT * FROM vouchers WHERE user_id='$my_id' ORDER BY created_at DESC LIMIT 30");
-$warning_query = mysqli_query($conn,"SELECT * FROM vouchers WHERE user_id='$my_id' AND status='used' AND expiry_date BETWEEN NOW() AND (NOW() + INTERVAL 24 HOUR) ORDER BY expiry_date ASC");
-$expired_query = mysqli_query($conn,"SELECT * FROM vouchers WHERE user_id='$my_id' AND (status='expired' OR expiry_date < NOW()) ORDER BY expiry_date DESC LIMIT 30");
+$vocha_query   = mysqli_query($conn,"SELECT * FROM vouchers WHERE user_id='$my_id' AND router_id='$router_id' ORDER BY created_at DESC LIMIT 30");
+$warning_query = mysqli_query($conn,"SELECT * FROM vouchers WHERE user_id='$my_id' AND router_id='$router_id' AND status='used' AND expiry_date BETWEEN NOW() AND (NOW() + INTERVAL 24 HOUR) ORDER BY expiry_date ASC");
+$expired_query = mysqli_query($conn,"SELECT * FROM vouchers WHERE user_id='$my_id' AND router_id='$router_id' AND (status='expired' OR expiry_date < NOW()) ORDER BY expiry_date DESC LIMIT 30");
 
 // ── VOCHA USED STATS ──
-$vu_total  = mysqli_fetch_assoc(mysqli_query($conn,"SELECT COUNT(*) c FROM vouchers WHERE user_id='$my_id' AND status='used'"))['c'] ?? 0;
-$vu_leo    = mysqli_fetch_assoc(mysqli_query($conn,"SELECT COUNT(*) c FROM vouchers WHERE user_id='$my_id' AND status='used' AND DATE(created_at)=CURDATE()"))['c'] ?? 0;
-$vu_mapato = mysqli_fetch_assoc(mysqli_query($conn,"SELECT SUM(price) s FROM vouchers WHERE user_id='$my_id' AND status='used'"))['s'] ?? 0;
-$vu_active = mysqli_fetch_assoc(mysqli_query($conn,"SELECT COUNT(*) c FROM vouchers WHERE user_id='$my_id' AND status='used' AND expiry_date > NOW()"))['c'] ?? 0;
-$vu_query  = mysqli_query($conn,"SELECT * FROM vouchers WHERE user_id='$my_id' AND status='used' ORDER BY created_at DESC");
+$vu_total  = mysqli_fetch_assoc(mysqli_query($conn,"SELECT COUNT(*) c FROM vouchers WHERE user_id='$my_id' AND router_id='$router_id' AND status='used'"))['c'] ?? 0;
+$vu_leo    = mysqli_fetch_assoc(mysqli_query($conn,"SELECT COUNT(*) c FROM vouchers WHERE user_id='$my_id' AND router_id='$router_id' AND status='used' AND DATE(created_at)=CURDATE()"))['c'] ?? 0;
+$vu_mapato = mysqli_fetch_assoc(mysqli_query($conn,"SELECT SUM(price) s FROM vouchers WHERE user_id='$my_id' AND router_id='$router_id' AND status='used'"))['s'] ?? 0;
+$vu_active = mysqli_fetch_assoc(mysqli_query($conn,"SELECT COUNT(*) c FROM vouchers WHERE user_id='$my_id' AND router_id='$router_id' AND status='used' AND expiry_date > NOW()"))['c'] ?? 0;
+$vu_query  = mysqli_query($conn,"SELECT * FROM vouchers WHERE user_id='$my_id' AND router_id='$router_id' AND status='used' ORDER BY created_at DESC");
 
 // ── HELPERS ──
 function packageBadge($pkg) {
@@ -194,15 +241,19 @@ function formatWA($phone) {
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',sans-serif;background-color:#0d1b17;background-image:linear-gradient(rgba(0,0,0,0.5)),url(beach5.jpg);background-size:cover;background-position:center;background-attachment:fixed;color:var(--text);display:flex;min-height:100vh;overflow-x:hidden}
 body::before{content:'';position:fixed;inset:0;background:rgba(0,0,0,0.30);pointer-events:none;z-index:0}
-.sidebar{width:var(--sidebar);background:var(--surface);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;inset:0 auto 0 0;z-index:100;transition:transform 0.35s cubic-bezier(.4,0,.2,1)}
-.sidebar-brand{padding:24px 24px 18px;border-bottom:1px solid var(--border)}
+.sidebar{width:var(--sidebar);height:100vh;background:var(--surface);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;inset:0 auto 0 0;z-index:100;transition:transform 0.35s cubic-bezier(.4,0,.2,1);overflow:hidden}
+.sidebar-brand{padding:24px 24px 18px;border-bottom:1px solid var(--border);flex-shrink:0}
 .brand-logo{display:flex;align-items:center;gap:12px;margin-bottom:4px}
 .brand-icon{width:38px;height:38px;background:linear-gradient(135deg,var(--accent),#00a86b);border-radius:10px;display:grid;place-items:center;font-size:16px;color:#000;box-shadow:0 0 20px rgba(7,247,147,0.35)}
 .brand-name{font-family:'Syne',sans-serif;font-weight:800;font-size:17px;color:#fff}
 .brand-sub{font-size:10px;color:var(--text-dim);letter-spacing:2px;text-transform:uppercase;padding-left:50px;margin-top:2px}
 .close-btn{display:none;background:none;border:none;color: #07f793;font-size:20px;cursor:pointer;margin-bottom:8px}
-.sidebar-section-label{font-size:9px;letter-spacing:2.5px;text-transform:uppercase;color:var(--text-muted);padding:18px 24px 8px;font-family:'Space Mono',monospace}
-.sidebar-menu{list-style:none;padding:0 12px;display:flex;flex-direction:column;gap:2px}
+.sidebar-section-label{font-size:9px;letter-spacing:2.5px;text-transform:uppercase;color:var(--text-muted);padding:18px 24px 8px;font-family:'Space Mono',monospace;flex-shrink:0}
+.sidebar-menu{list-style:none;padding:0 12px 12px;display:flex;flex-direction:column;gap:2px;flex:1;min-height:0;overflow-y:auto;overflow-x:hidden}
+.sidebar-menu::-webkit-scrollbar{width:5px}
+.sidebar-menu::-webkit-scrollbar-track{background:transparent}
+.sidebar-menu::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.2);border-radius:10px}
+.sidebar-menu{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,0.2) transparent}
 .sidebar-menu a{display:flex;align-items:center;gap:12px;padding:11px 14px;color: #07f793;text-decoration:none;font-size:13.5px;font-weight:500;border-radius:10px;transition:all 0.2s;position:relative;cursor:pointer}
 .sidebar-menu a .nav-icon{width:32px;height:32px;display:grid;place-items:center;border-radius:8px;font-size:13px;background:transparent;transition:all 0.2s;flex-shrink:0}
 .sidebar-menu a:hover{color:#fff;background:var(--surface2)}
@@ -212,7 +263,7 @@ body::before{content:'';position:fixed;inset:0;background:rgba(0,0,0,0.30);point
 .sidebar-menu li.active a::before{content:'';position:absolute;left:0;top:20%;bottom:20%;width:3px;background:var(--accent);border-radius:0 2px 2px 0}
 .sidebar-menu a.logout-link{color:#ff6b6b}
 .sidebar-menu a.logout-link:hover{background:rgba(255,61,87,0.08);color:var(--red)}
-.sidebar-footer{margin-top:auto;padding:18px 24px;border-top:1px solid var(--border)}
+.sidebar-footer{flex-shrink:0;padding:18px 24px;border-top:1px solid var(--border)}
 .signal-meter{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text-dim)}
 .signal-bars{display:flex;gap:3px;align-items:flex-end}
 .signal-bars span{width:4px;background:var(--accent);border-radius:2px;animation:pulse-bar 2s ease-in-out infinite}
@@ -442,6 +493,9 @@ code{font-family:'Space Mono',monospace;font-size:11px;color:var(--accent2);back
             <div><div class="brand-name">System</div></div>
         </div>
         <div class="brand-sub">Tech 5G Wi-Fi </div>
+        <div class="brand-sub" style="margin-top:4px;color:var(--accent);font-weight:600;">
+            <i class="fa-solid fa-server" style="font-size:11px;"></i> <?php echo htmlspecialchars($router_label ?: 'Router'); ?>
+        </div>
     </div>
     <div class="sidebar-section-label">Navigation</div>
     <ul class="sidebar-menu">
@@ -451,6 +505,12 @@ code{font-family:'Space Mono',monospace;font-size:11px;color:var(--accent2);back
         <li id="nav-vocha">
             <a onclick="onyeshaSection('vocha')"><div class="nav-icon"><i class="fa-solid fa-ticket"></i></div>Vocha Mfumo</a>
         </li>
+        <li>
+            <a href="cash_out.php"><div class="nav-icon"><i class="fa-solid fa-money-bill-transfer"></i></div>Cash Out</a>
+        </li>
+        <li>
+            <a href="my_mikrotiks.php"><div class="nav-icon"><i class="fa-solid fa-server"></i></div>My Mikrotiks</a>
+        </li>
         <li id="nav-mipangilio">
             <a onclick="onyeshaSection('mipangilio')"><div class="nav-icon"><i class="fa-solid fa-sliders"></i></div>Mipangilio</a>
         </li>
@@ -458,7 +518,7 @@ code{font-family:'Space Mono',monospace;font-size:11px;color:var(--accent2);back
             <a onclick="onyeshaSection('voucher-used')"><div class="nav-icon"><i class="fa-solid fa-circle-check"></i></div>Vocha Zilizotumika</a>
         </li>
         <li>
-            <a href="malipo_status.php"><div class="nav-icon"><i class="fa-solid fa-money-bill-transfer"></i></div>Hali za Malipo</a>
+            <a href="malipo_status.php"><div class="nav-icon"><i class="fa-solid fa-receipt"></i></div>Hali za Malipo</a>
         </li>
         <li>
             <a href="mikrotik_setup.php"><div class="nav-icon"><i class="fa-solid fa-router"></i></div>MikroTik Setup</a>
@@ -494,6 +554,18 @@ code{font-family:'Space Mono',monospace;font-size:11px;color:var(--accent2);back
             </div>
         </div>
     </header>
+
+    <?php if ($subscription_info['status'] === 'grace'): ?>
+    <div style="background:rgba(255,176,32,0.12);border:1px solid rgba(255,176,32,0.35);color:#ffb020;padding:12px 18px;border-radius:10px;margin:0 0 18px;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span>⚠️ Plan yako imeisha muda — uko kwenye siku za onyo hadi <?php echo date('d M Y', strtotime($subscription_info['grace_until'])); ?>. Lipia sasa ili usipoteze access.</span>
+        <a href="subscribe.php" style="background:#ffb020;color:#04231a;padding:7px 16px;border-radius:8px;text-decoration:none;font-weight:700;font-size:12.5px;white-space:nowrap;">Lipia Sasa</a>
+    </div>
+    <?php elseif ($subscription_info['status'] === 'trial'): ?>
+    <div style="background:rgba(63,199,253,0.1);border:1px solid rgba(63,199,253,0.3);color:#3fc7fd;padding:12px 18px;border-radius:10px;margin:0 0 18px;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span>🎁 Uko kwenye Trial ya Bure — inaisha <?php echo date('d M Y', strtotime($subscription_info['expires_at'])); ?>.</span>
+        <a href="subscribe.php" style="background:#3fc7fd;color:#04231a;padding:7px 16px;border-radius:8px;text-decoration:none;font-weight:700;font-size:12.5px;white-space:nowrap;">Ona Plans</a>
+    </div>
+    <?php endif; ?>
 
     <div id="dashboard" class="dashboard-section active">
         <section class="cards-grid">
