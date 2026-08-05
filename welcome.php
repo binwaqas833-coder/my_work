@@ -1,9 +1,20 @@
 <?php
 session_start();
+include 'login_signup.php'; // $conn - kwa ajili ya kusoma bei za subscription_plans moja kwa moja
+
 // Kama mtumiaji ameshajilogi, mpeleke moja kwa moja kwenye dashboard yake
 if (isset($_SESSION['user_id'])) {
     header("Location: " . ($_SESSION['role'] == 'admin' ? "dashboard_chaguo.php" : "user_dashboard.php"));
     exit();
+}
+
+// ── BEI ZA PLANS — moja kwa moja kutoka database (siyo hardcoded) ──
+// Admin akibadilisha bei kwenye admin.php, hapa panabadilika kiotomatiki
+// bila kuhitaji kugusa faili hii kabisa.
+$plans_landing = [];
+$pl_res = mysqli_query($conn, "SELECT plan_name, price, max_routers FROM subscription_plans WHERE is_active=1 ORDER BY price ASC");
+while ($pl_res && $pl_row = mysqli_fetch_assoc($pl_res)) {
+    $plans_landing[] = $pl_row;
 }
 // Hakuna cookie/redirect nyingine hapa kwa makusudi — welcome.php ni
 // landing page ya wazi kwa kila mtu asiyeingia. Mtu anayejua mfumo
@@ -519,50 +530,37 @@ body::before{content:'';position:fixed;inset:0;background:rgba(0,0,0,0.30);point
             <div class="pricing-note"><i class="fa-solid fa-gift"></i> <span data-translate="pricing_trial_note">Trial ya Siku 7 Bila Malipo kwa Kila Mpango</span></div>
         </div>
         <div class="pricing-grid">
-
-            <div class="price-card reveal-left">
-                <div class="price-plan-name">Tech Solo</div>
-                <div class="price-amount">Tsh 100,000<span data-translate="price_per_year">/mwaka</span></div>
-                <div class="price-billed" data-translate="price_solo_billed">Router 1</div>
+            <?php
+            $reveal_classes = ['reveal-left', 'reveal-up', 'reveal-right'];
+            $jumla_plans = count($plans_landing);
+            foreach ($plans_landing as $i => $plan):
+                $ni_featured = ($jumla_plans === 3 && $i === 1); // kadi ya kati (bei ya wastani)
+                $ni_mwisho   = ($i === $jumla_plans - 1);
+                $reveal      = $reveal_classes[$i] ?? 'reveal-up';
+                $routers_n   = (int)$plan['max_routers'];
+            ?>
+            <div class="price-card <?php echo $ni_featured ? 'featured' : ''; ?> <?php echo $reveal; ?>">
+                <?php if ($ni_featured): ?>
+                    <span class="price-popular" data-translate="price_popular_tag">Maarufu Zaidi</span>
+                <?php endif; ?>
+                <div class="price-plan-name"><?php echo htmlspecialchars($plan['plan_name']); ?></div>
+                <div class="price-amount">Tsh <?php echo number_format($plan['price']); ?><span data-translate="price_per_year">/mwaka</span></div>
+                <div class="price-billed"><?php echo $routers_n; ?> Router<?php echo $routers_n > 1 ? 's' : ''; ?></div>
                 <ul class="price-features">
-                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_routers1">Router 1 ya MikroTik</span></li>
+                    <li><i class="fa-solid fa-check"></i> <span><?php echo $routers_n; ?> Router<?php echo $routers_n > 1 ? 's' : ''; ?> za MikroTik</span></li>
                     <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_vouchers">Vocha zisizo na kikomo</span></li>
-                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_dashboard">Dashboard kamili ya mauzo</span></li>
-                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_payments">Malipo ya mtandao wa simu</span></li>
-                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_support">Msaada wa Haraka</span></li>
+                    <?php if ($routers_n > 1): ?>
+                        <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_switch">Badilisha kati ya routers kwa kubonyeza</span></li>
+                        <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_perrouter">Bei tofauti kwa kila router</span></li>
+                    <?php else: ?>
+                        <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_dashboard">Dashboard kamili ya mauzo</span></li>
+                        <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_payments">Malipo ya mtandao wa simu</span></li>
+                    <?php endif; ?>
+                    <li><i class="fa-solid fa-check"></i> <span data-translate="<?php echo $ni_mwisho ? 'price_feat_priority' : 'price_feat_support'; ?>"><?php echo $ni_mwisho ? 'Kipaumbele cha Msaada' : 'Msaada wa Haraka'; ?></span></li>
                 </ul>
-                <a href="index.php#signup" class="btn btn-outline"><i class="fa-solid fa-gift"></i> <span data-translate="price_btn_trial">Anza Trial ya Siku 7</span></a>
+                <a href="index.php#signup" class="btn <?php echo $ni_featured ? 'btn-primary' : 'btn-outline'; ?>"><i class="fa-solid fa-gift"></i> <span data-translate="price_btn_trial">Anza Trial ya Siku 7</span></a>
             </div>
-
-            <div class="price-card featured reveal-up">
-                <span class="price-popular" data-translate="price_popular_tag">Maarufu Zaidi</span>
-                <div class="price-plan-name">Tech Pro</div>
-                <div class="price-amount">Tsh 180,000<span data-translate="price_per_year">/mwaka</span></div>
-                <div class="price-billed" data-translate="price_pro_billed">Routers 3</div>
-                <ul class="price-features">
-                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_routers3">Routers 3 za MikroTik</span></li>
-                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_vouchers">Vocha zisizo na kikomo</span></li>
-                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_switch">Badilisha kati ya routers kwa kubonyeza</span></li>
-                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_perrouter">Bei tofauti kwa kila router</span></li>
-                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_support">Msaada wa Haraka</span></li>
-                </ul>
-                <a href="index.php#signup" class="btn btn-primary"><i class="fa-solid fa-gift"></i> <span data-translate="price_btn_trial">Anza Trial ya Siku 7</span></a>
-            </div>
-
-            <div class="price-card reveal-right">
-                <div class="price-plan-name">Tech Max</div>
-                <div class="price-amount">Tsh 300,000<span data-translate="price_per_year">/mwaka</span></div>
-                <div class="price-billed" data-translate="price_max_billed">Routers 10</div>
-                <ul class="price-features">
-                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_routers10">Routers 10 za MikroTik</span></li>
-                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_vouchers">Vocha zisizo na kikomo</span></li>
-                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_switch">Badilisha kati ya routers kwa kubonyeza</span></li>
-                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_perrouter">Bei tofauti kwa kila router</span></li>
-                    <li><i class="fa-solid fa-check"></i> <span data-translate="price_feat_priority">Kipaumbele cha Msaada</span></li>
-                </ul>
-                <a href="index.php#signup" class="btn btn-outline"><i class="fa-solid fa-gift"></i> <span data-translate="price_btn_trial">Anza Trial ya Siku 7</span></a>
-            </div>
-
+            <?php endforeach; ?>
         </div>
     </section>
 

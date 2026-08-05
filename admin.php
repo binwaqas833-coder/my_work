@@ -45,9 +45,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
         mysqli_query($conn, "DELETE FROM users WHERE id=$id");
         echo json_encode(['status'=>'success', 'msg'=>'Mtumiaji amefutwa.']);
     
+    // ── SUBSCRIPTION PLAN UPDATE ──
+    } elseif ($action === 'update_plan') {
+        $price       = (float)($_POST['price'] ?? 0);
+        $max_routers = (int)($_POST['max_routers'] ?? 0);
+        $is_active   = isset($_POST['is_active']) && $_POST['is_active'] == '1' ? 1 : 0;
+
+        if ($price <= 0 || $max_routers <= 0) {
+            echo json_encode(['status' => 'error', 'msg' => 'Bei na idadi ya routers lazima ziwe zaidi ya 0.']);
+            exit();
+        }
+
+        $up = $conn->prepare("UPDATE subscription_plans SET price=?, max_routers=?, is_active=? WHERE id=?");
+        $up->bind_param("diii", $price, $max_routers, $is_active, $id);
+        if ($up->execute()) {
+            echo json_encode(['status' => 'success', 'msg' => 'Plan imesasishwa! 🎉', 'price' => number_format($price), 'max_routers' => $max_routers]);
+        } else {
+            echo json_encode(['status' => 'error', 'msg' => 'Imeshindikana kuhifadhi.']);
+        }
+        $up->close();
+
     // ── PAYOUT ACTIONS ──
     } elseif ($action === 'payout_approve') {
-        // Vuta data ya reseller kwanza (Email, Username, Amount) ili tuweze kutuma email
         $stmt_user = mysqli_prepare($conn, "
             SELECT u.email, u.username, p.amount
             FROM payout_requests p
@@ -66,7 +85,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
             mysqli_stmt_close($stmt);
 
             if ($updated) {
-                // TUMA EMAIL (AUTOMATIC) - tunakagua matokeo ili tumjulishe admin ukweli
                 $email_sent = false;
                 if (!empty($reseller['email'])) {
                     require_once __DIR__ . '/email_helper.php';
@@ -93,7 +111,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
         }
 
     } elseif ($action === 'payout_reject') {
-        // Leta data ya payout & reseller (pamoja na email) ili kurudisha salio na kutuma taarifa
         $stmt_get = mysqli_prepare($conn, "
             SELECT p.user_id, p.amount, u.email, u.username
             FROM payout_requests p
@@ -112,13 +129,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
 
             mysqli_begin_transaction($conn);
             try {
-                // Update Payout status
                 $stmt_rej = mysqli_prepare($conn, "UPDATE payout_requests SET status = 'rejected' WHERE id = ?");
                 mysqli_stmt_bind_param($stmt_rej, "i", $id);
                 mysqli_stmt_execute($stmt_rej);
                 mysqli_stmt_close($stmt_rej);
 
-                // Rejesha salio kwa user
                 $stmt_ref = mysqli_prepare($conn, "UPDATE users SET balance = balance + ? WHERE id = ?");
                 mysqli_stmt_bind_param($stmt_ref, "di", $p_amount, $p_user_id);
                 mysqli_stmt_execute($stmt_ref);
@@ -126,7 +141,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
 
                 mysqli_commit($conn);
 
-                // TUMA EMAIL YA REJECT & REFUND (AUTOMATIC)
                 $email_sent = false;
                 if (!empty($p_data['email'])) {
                     require_once __DIR__ . '/email_helper.php';
@@ -206,7 +220,7 @@ $result = mysqli_query($conn, "
     ORDER BY u.created_at DESC
 ");
 
-// Jumla ya mapato ya reseller WOTE mwezi huu
+// Mapato ya resellers wote
 $mapato_wote_mwezi = mysqli_fetch_assoc(mysqli_query($conn, "
     SELECT COALESCE(SUM(price), 0) AS total FROM vouchers
     WHERE type = 'paid' AND created_at >= DATE_FORMAT(NOW(), '%Y-%m-01')
@@ -220,6 +234,9 @@ $payout_result = mysqli_query($conn, "
     WHERE p.status = 'pending' 
     ORDER BY p.id DESC
 ");
+
+// ── VUTA SUBSCRIPTION PLANS ──
+$plans_result = mysqli_query($conn, "SELECT * FROM subscription_plans ORDER BY price ASC");
 ?>
 <!DOCTYPE html>
 <html lang="sw">
@@ -280,11 +297,18 @@ body::before{content:'';position:fixed;inset:0;background:rgba(0,0,0,0.38);point
 .stat-value{font-family:'Syne',sans-serif;font-size:26px;font-weight:800;color:#fff;line-height:1}
 .stat-sub{font-size:11px;color:var(--text-dim);margin-top:5px}
 .stat-icon{position:absolute;right:16px;top:16px;font-size:22px;opacity:0.12}
-.stat-card.c1 .stat-icon{color:var(--accent)}
-.stat-card.c2 .stat-icon{color:var(--accent2)}
-.stat-card.c3 .stat-icon{color:#f59e0b}
-.stat-card.c4 .stat-icon{color:var(--red)}
-.stat-card.c5 .stat-icon{color:var(--accent3)}
+
+/* ── PLANS SECTION STYLES ── */
+.plans-cards-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;}
+.plan-mini-card{background:var(--surface2);border:1px solid var(--border2);border-radius:12px;padding:16px;text-align:center}
+.plan-mini-name{font-family:'Syne',sans-serif;font-weight:700;font-size:14px;margin-bottom:6px}
+.plan-inactive-tag{display:block;font-size:9px;color:var(--red);font-weight:700;margin-top:3px}
+.plan-mini-price{font-family:'Syne',sans-serif;font-weight:800;color:var(--accent);font-size:15px}
+.plan-mini-routers{font-size:11px;color:var(--text-dim);margin-top:2px}
+.plan-edit-field{margin-bottom:12px;text-align:left}
+.plan-edit-field label{display:block;font-size:11px;color:var(--text-dim);margin-bottom:4px}
+.plan-edit-field input[type=number]{width:100%;padding:9px 10px;border-radius:8px;border:1px solid var(--border2);background:rgba(0,0,0,0.2);color:var(--text);font-size:13px;outline:none}
+.plan-edit-field label.checkbox-label{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text);cursor:pointer}
 
 /* ── PANEL ── */
 .panel{background:var(--surface);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);border:1px solid var(--border2);border-radius:var(--radius);padding:24px;margin-bottom:24px;position:relative;overflow:hidden}
@@ -297,7 +321,6 @@ body::before{content:'';position:fixed;inset:0;background:rgba(0,0,0,0.38);point
 .search-wrap{margin-bottom:18px}
 .search-input{width:100%;padding:11px 16px;border-radius:10px;border:1px solid rgba(255,255,255,0.20);background:rgba(255,255,255,0.08);color:#fff;font-size:13px;font-family:'DM Sans',sans-serif;outline:none;transition:border-color 0.2s}
 .search-input:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(7,247,147,0.10)}
-.search-input::placeholder{color:rgba(255,255,255,0.35)}
 
 /* ── TABLE ── */
 .table-wrap{overflow-x:auto}
@@ -306,8 +329,6 @@ thead th{padding:11px 14px;font-size:10px;letter-spacing:1.5px;text-transform:up
 tbody td{padding:13px 14px;border-bottom:1px solid rgba(255,255,255,0.05);color:#fff;vertical-align:middle}
 tbody tr{transition:background 0.15s,opacity 0.4s,transform 0.4s}
 tbody tr:hover{background:rgba(255,255,255,0.04)}
-tbody tr:last-child td{border-bottom:none}
-tbody tr.removing{opacity:0;transform:translateX(30px);pointer-events:none}
 
 /* ── BADGES ── */
 .badge{font-family:'Space Mono',monospace;font-size:9px;font-weight:700;padding:4px 9px;border-radius:5px;letter-spacing:0.5px;display:inline-block}
@@ -326,96 +347,37 @@ tbody tr.removing{opacity:0;transform:translateX(30px);pointer-events:none}
 .btn-nav.gray{background:rgba(255,255,255,0.10);color:var(--text-dim);border:1px solid var(--border2)}
 .btn-nav.gray:hover{background:rgba(255,255,255,0.18);color:#fff}
 .btn-nav.blue{background:rgba(63,199,253,0.15);color:var(--accent2);border:1px solid rgba(63,199,253,0.30)}
-.btn-nav.blue:hover{background:rgba(63,199,253,0.25)}
 .btn-nav.red{background:rgba(255,61,87,0.15);color:var(--red);border:1px solid rgba(255,61,87,0.30)}
-.btn-nav.red:hover{background:rgba(255,61,87,0.25)}
 
 .btn{display:inline-flex;align-items:center;gap:5px;padding:6px 13px;border-radius:7px;font-size:11px;font-weight:700;border:none;cursor:pointer;transition:all 0.2s;font-family:'DM Sans',sans-serif;white-space:nowrap}
 .btn-approve  {background:rgba(7,247,147,0.15);color:var(--accent);border:1px solid rgba(7,247,147,0.30)}
-.btn-approve:hover{background:rgba(7,247,147,0.25)}
 .btn-resetpass{background:rgba(63,199,253,0.15);color:var(--accent2);border:1px solid rgba(63,199,253,0.30)}
-.btn-resetpass:hover{background:rgba(63,199,253,0.25)}
 .btn-makeadmin{background:rgba(255,107,53,0.15);color:var(--accent3);border:1px solid rgba(255,107,53,0.30)}
-.btn-makeadmin:hover{background:rgba(255,107,53,0.25)}
 .btn-delete   {background:rgba(255,61,87,0.15);color:var(--red);border:1px solid rgba(255,61,87,0.30)}
-.btn-delete:hover{background:rgba(255,61,87,0.25)}
 .actions-wrap{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 
 /* ── MODAL ── */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:none;justify-content:center;align-items:center;z-index:1500}
 .modal-overlay.active{display:flex}
-.modal-content{background:rgba(15,30,50,0.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.15);box-shadow:0 8px 40px rgba(0,0,0,0.5);padding:28px;border-radius:16px;width:90%;max-width:380px;color:#fff;animation:modalIn 0.3s ease;text-align:center}
-@keyframes modalIn{from{transform:scale(0.9);opacity:0}to{transform:scale(1);opacity:1}}
+.modal-content{background:rgba(15,30,50,0.92);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.15);padding:28px;border-radius:16px;width:90%;max-width:380px;color:#fff;text-align:center}
 .modal-icon{font-size:44px;margin-bottom:14px}
-.modal-content h4{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;margin-bottom:8px}
-.modal-content p{color:var(--text-dim);font-size:13px;margin-bottom:22px;line-height:1.6}
-.modal-btns{display:flex;gap:10px;justify-content:center}
-.btn-cancel{background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.70);border:1px solid rgba(255,255,255,0.15);padding:10px 22px;border-radius:8px;cursor:pointer;font-weight:600;font-size:13px;transition:all 0.2s;font-family:'DM Sans',sans-serif}
-.btn-cancel:hover{background:rgba(255,255,255,0.14);color:#fff}
-.btn-confirm{padding:10px 22px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px;border:none;display:inline-flex;align-items:center;gap:6px;transition:all 0.2s;font-family:'DM Sans',sans-serif}
-.btn-confirm.green{background:var(--accent);color:#000}
-.btn-confirm.green:hover{filter:brightness(1.1)}
-.btn-confirm.orange{background:var(--accent3);color:#fff}
-.btn-confirm.orange:hover{filter:brightness(1.1)}
-.btn-confirm.red{background:var(--red);color:#fff}
-.btn-confirm.red:hover{filter:brightness(1.1)}
+.modal-btns{display:flex;gap:10px;justify-content:center;margin-top:16px;}
+.btn-cancel{background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.70);border:1px solid rgba(255,255,255,0.15);padding:10px 22px;border-radius:8px;cursor:pointer;font-weight:600;font-size:13px;}
+.btn-confirm{padding:10px 22px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px;border:none;background:var(--accent);color:#000}
 
 /* ── TOAST ── */
-#toastContainer{position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:10px;pointer-events:none}
-.toast{min-width:300px;max-width:420px;padding:14px 18px;border-radius:12px;color:#fff;display:flex;align-items:center;gap:12px;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.15);box-shadow:0 8px 32px rgba(0,0,0,0.3);font-size:13px;pointer-events:auto;animation:toastIn 0.4s cubic-bezier(.4,0,.2,1) forwards}
+#toastContainer{position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:10px}
+.toast{min-width:300px;padding:14px 18px;border-radius:12px;color:#fff;display:flex;align-items:center;gap:12px;backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.15);font-size:13px}
 .toast.success{background:rgba(7,247,147,0.15);border-left:4px solid var(--accent)}
 .toast.error  {background:rgba(255,61,87,0.15); border-left:4px solid var(--red)}
-.toast.warning{background:rgba(245,158,11,0.15);border-left:4px solid #f59e0b}
-.toast.info   {background:rgba(63,199,253,0.15);border-left:4px solid var(--accent2)}
-.toast.success .ti{color:var(--accent);font-size:18px}
-.toast.error   .ti{color:var(--red);font-size:18px}
-.toast.warning .ti{color:#f59e0b;font-size:18px}
-.toast.info    .ti{color:var(--accent2);font-size:18px}
-.toast-msg{flex:1;line-height:1.4}
-.toast-close{background:none;border:none;color:rgba(255,255,255,0.5);font-size:16px;cursor:pointer;padding:0 0 0 8px;transition:color 0.2s}
-.toast-close:hover{color:#fff}
-@keyframes toastIn{from{transform:translateX(110%);opacity:0}to{transform:translateX(0);opacity:1}}
-@keyframes toastOut{from{opacity:1}to{opacity:0;transform:translateX(60px)}}
 
 /* ── FOOTER ── */
 .footer{text-align:center;padding:22px;font-size:11px;color:rgba(255,255,255,0.35);font-family:'Space Mono',monospace}
-
-/* ── RESPONSIVE ── */
-@media(max-width:1024px){.stats-row{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:768px){.stats-row{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:600px){
-    body{padding:12px}
-    .stats-row{grid-template-columns:1fr 1fr}
-    .page-header{flex-direction:column;align-items:flex-start}
-    .header-right{width:100%;justify-content:flex-start}
-    table,tr,td,th{display:block;width:100%}
-    tr{margin-bottom:12px;background:rgba(0,0,0,0.2);padding:12px;border-radius:10px}
-    td{border:none;padding:6px 0}
-    thead{display:none}
-    .actions-wrap{flex-direction:row;flex-wrap:wrap}
-}
-@media(max-width:480px){
-    .stats-row{grid-template-columns:1fr}
-    .btn-nav{font-size:12px;padding:8px 12px}
-}
 </style>
 </head>
 <body>
 
 <div id="toastContainer"></div>
-
-<!-- Flash toast kutoka session -->
-<?php if(isset($_SESSION['toast'])): ?>
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    showToast(
-        '<?php echo addslashes(htmlspecialchars($_SESSION['toast']['msg'], ENT_QUOTES)); ?>',
-        '<?php echo $_SESSION['toast']['type']; ?>'
-    );
-});
-</script>
-<?php unset($_SESSION['toast']); ?>
-<?php endif; ?>
 
 <div class="wrapper">
 
@@ -426,18 +388,33 @@ document.addEventListener('DOMContentLoaded', function() {
             <p>Usimamizi wa Watumiaji — Karibu, <strong><?php echo htmlspecialchars($_SESSION['username']); ?></strong></p>
         </div>
         <div class="header-right">
-            <a href="admin.php" class="btn-nav blue">
-                <i class="fa-solid fa-sliders"></i> Admin Dashboard
-            </a>
-            <a href="user_dashboard.php" class="btn-nav gray">
-                <i class="fa-solid fa-chart-pie"></i> Billing
-            </a>
-            <a href="admin_error_logs.php" class="btn-nav gray">
-                <i class="fa-solid fa-triangle-exclamation"></i> Error Logs
-            </a>
-            <a href="logout.php" class="btn-nav red">
-                <i class="fa-solid fa-right-from-bracket"></i> Logout
-            </a>
+            <a href="admin.php" class="btn-nav blue"><i class="fa-solid fa-sliders"></i> Admin Dashboard</a>
+            <a href="user_dashboard.php" class="btn-nav gray"><i class="fa-solid fa-chart-pie"></i> Billing</a>
+            <a href="admin_error_logs.php" class="btn-nav gray"><i class="fa-solid fa-triangle-exclamation"></i> Error Logs</a>
+            <a href="logout.php" class="btn-nav red"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
+        </div>
+    </div>
+
+    <!-- ── SUBSCRIPTION PLANS SECTION ── -->
+    <div class="panel">
+        <div class="panel-title">
+            <h3><i class="fa-solid fa-tags"></i> Bei za Subscription Plans</h3>
+        </div>
+        <div class="plans-cards-grid">
+            <?php while ($plan = mysqli_fetch_assoc($plans_result)): ?>
+            <div class="plan-mini-card" id="plan-card-<?php echo (int)$plan['id']; ?>">
+                <div class="plan-mini-name">
+                    <?php echo htmlspecialchars($plan['plan_name']); ?>
+                    <?php if (!$plan['is_active']): ?><span class="plan-inactive-tag">IMEZIMWA</span><?php endif; ?>
+                </div>
+                <div class="plan-mini-price">Tsh <span class="plan-price-val"><?php echo number_format($plan['price']); ?></span>/mwaka</div>
+                <div class="plan-mini-routers"><span class="plan-routers-val"><?php echo (int)$plan['max_routers']; ?></span> router(s)</div>
+                <button class="btn-nav gray" style="width:100%;margin-top:10px;font-size:12px;padding:8px;"
+                    onclick="funguaHaririPlan(<?php echo (int)$plan['id']; ?>, '<?php echo htmlspecialchars($plan['plan_name'], ENT_QUOTES); ?>', <?php echo (float)$plan['price']; ?>, <?php echo (int)$plan['max_routers']; ?>, <?php echo (int)$plan['is_active']; ?>)">
+                    <i class="fa-solid fa-pen"></i> Hariri Bei
+                </button>
+            </div>
+            <?php endwhile; ?>
         </div>
     </div>
 
@@ -446,27 +423,17 @@ document.addEventListener('DOMContentLoaded', function() {
     <div class="alert-pending">
         <i class="fa-solid fa-triangle-exclamation"></i>
         <div>
-            <strong>Maombi yanayosubiri idhini yako:</strong>
-            &nbsp;&nbsp;
+            <strong>Maombi yanayosubiri idhini yako:</strong> &nbsp;&nbsp;
             <?php if($total_pending > 0): ?>
-                <span style="color:var(--accent);">
-                    <i class="fa-solid fa-user-plus" style="font-size:11px;"></i>
-                    Usajili mpya: <strong><?php echo $total_pending; ?></strong>
-                </span>
+                <span style="color:var(--accent);"><i class="fa-solid fa-user-plus" style="font-size:11px;"></i> Usajili mpya: <strong><?php echo $total_pending; ?></strong></span>
             <?php endif; ?>
             <?php if($total_resets > 0): ?>
                 &nbsp;·&nbsp;
-                <span style="color:var(--accent2);">
-                    <i class="fa-solid fa-key" style="font-size:11px;"></i>
-                    Password Reset: <strong><?php echo $total_resets; ?></strong>
-                </span>
+                <span style="color:var(--accent2);"><i class="fa-solid fa-key" style="font-size:11px;"></i> Password Reset: <strong><?php echo $total_resets; ?></strong></span>
             <?php endif; ?>
             <?php if($total_payouts > 0): ?>
                 &nbsp;·&nbsp;
-                <span style="color:var(--accent3);">
-                    <i class="fa-solid fa-hand-holding-dollar" style="font-size:11px;"></i>
-                    Cash Out Requests: <strong><?php echo $total_payouts; ?></strong>
-                </span>
+                <span style="color:var(--accent3);"><i class="fa-solid fa-hand-holding-dollar" style="font-size:11px;"></i> Cash Out: <strong><?php echo $total_payouts; ?></strong></span>
             <?php endif; ?>
         </div>
     </div>
@@ -510,9 +477,7 @@ document.addEventListener('DOMContentLoaded', function() {
     <div class="panel" style="border-color: rgba(255,107,53,0.30);">
         <div class="panel-title">
             <h3><i class="fa-solid fa-money-bill-transfer" style="color:var(--accent3);"></i> Maombi ya Cash Out (Payout Requests)</h3>
-            <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--text-dim);">
-                <?php echo $total_payouts; ?> yanayosubiri
-            </span>
+            <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--text-dim);"><?php echo $total_payouts; ?> yanayosubiri</span>
         </div>
 
         <div class="table-wrap">
@@ -534,10 +499,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         </tr>
                     </thead>
                     <tbody>
-                    <?php 
-                    $p_no = 1;
-                    while($p = mysqli_fetch_assoc($payout_result)): 
-                    ?>
+                    <?php $p_no = 1; while($p = mysqli_fetch_assoc($payout_result)): ?>
                     <tr id="payout-row-<?php echo $p['id']; ?>">
                         <td style="color:var(--text-dim);font-family:'Space Mono',monospace;font-size:11px;"><?php echo $p_no++; ?></td>
                         <td><strong><?php echo htmlspecialchars($p['username']); ?></strong></td>
@@ -567,16 +529,11 @@ document.addEventListener('DOMContentLoaded', function() {
     <div class="panel">
         <div class="panel-title">
             <h3><i class="fa-solid fa-users-gear"></i> Orodha ya Watumiaji</h3>
-            <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--text-dim);">
-                <?php echo $total_users; ?> watumiaji wote
-            </span>
+            <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--text-dim);"><?php echo $total_users; ?> watumiaji wote</span>
         </div>
 
-        <!-- Search -->
         <div class="search-wrap">
-            <input type="text" class="search-input" id="liveSearch"
-                   placeholder="Tafuta kwa jina, email au namba ya simu..."
-                   onkeyup="searchTable()">
+            <input type="text" class="search-input" id="liveSearch" placeholder="Tafuta kwa jina, email au namba ya simu..." onkeyup="searchTable()">
         </div>
 
         <div class="table-wrap">
@@ -587,12 +544,12 @@ document.addEventListener('DOMContentLoaded', function() {
                         <th>Username</th>
                         <th>Email</th>
                         <th>Simu</th>
-                        <th>Tarehe ya Kujisajili</th>
+                        <th>Tarehe</th>
                         <th>Status</th>
                         <th>Role</th>
                         <th>Routers</th>
                         <th>MikroTik</th>
-                        <th>Mapato Mwezi Huu</th>
+                        <th>Mapato Mwezi</th>
                         <th>Subscription</th>
                         <th>Vitendo</th>
                     </tr>
@@ -616,45 +573,27 @@ document.addEventListener('DOMContentLoaded', function() {
                         ? '<span class="badge badge-admin">ADMIN</span>'
                         : '<span class="badge badge-user">USER</span>';
 
-                    $created = $row['created_at']
-                        ? date('d M Y', strtotime($row['created_at']))
-                        : '—';
+                    $created = $row['created_at'] ? date('d M Y', strtotime($row['created_at'])) : '—';
                 ?>
                 <tr id="user-row-<?php echo $row['id']; ?>">
-                    <td style="color:var(--text-dim);font-family:'Space Mono',monospace;font-size:11px;">
-                        <?php echo $no++; ?>
-                    </td>
-                    <td>
-                        <strong><?php echo htmlspecialchars($row['username']); ?></strong>
-                        <?php if($is_me): ?>
-                            <span class="badge-me">Wewe</span>
-                        <?php endif; ?>
-                    </td>
-                    <td style="color:var(--text-dim);font-size:12px;">
-                        <?php echo htmlspecialchars($row['email'] ?? '—'); ?>
-                    </td>
-                    <td style="font-family:'Space Mono',monospace;font-size:11px;color:var(--accent2);">
-                        <?php echo htmlspecialchars($row['phone'] ?? '—'); ?>
-                    </td>
-                    <td style="font-size:11px;color:var(--text-dim);white-space:nowrap;">
-                        <?php echo $created; ?>
-                    </td>
+                    <td style="color:var(--text-dim);font-family:'Space Mono',monospace;font-size:11px;"><?php echo $no++; ?></td>
+                    <td><strong><?php echo htmlspecialchars($row['username']); ?></strong> <?php if($is_me): ?><span class="badge-me">Wewe</span><?php endif; ?></td>
+                    <td style="color:var(--text-dim);font-size:12px;"><?php echo htmlspecialchars($row['email'] ?? '—'); ?></td>
+                    <td style="font-family:'Space Mono',monospace;font-size:11px;color:var(--accent2);"><?php echo htmlspecialchars($row['phone'] ?? '—'); ?></td>
+                    <td style="font-size:11px;color:var(--text-dim);white-space:nowrap;"><?php echo $created; ?></td>
                     <td><?php echo $status_badge; ?></td>
                     <td><?php echo $role_badge; ?></td>
                     <td style="font-family:'Space Mono',monospace;font-size:12px;">
-                        <?php if (!empty($row['router_ids'])):
-                            $rid_list = explode(',', $row['router_ids']);
-                        ?>
+                        <?php if (!empty($row['router_ids'])): $rid_list = explode(',', $row['router_ids']); ?>
                             <?php foreach ($rid_list as $rid): ?>
                                 <span style="color:var(--accent);font-weight:700;cursor:pointer;display:inline-block;margin:1px 3px 1px 0;"
-                                      title="Bonyeza kunakili"
                                       onclick="navigator.clipboard.writeText('<?php echo (int)$rid; ?>');showToast('Router ID imenakiliwa: <?php echo (int)$rid; ?>','info');">
                                     #<?php echo (int)$rid; ?>
                                 </span>
                             <?php endforeach; ?>
                             <div style="color:var(--text-dim);font-size:10px;"><?php echo (int)$row['router_count']; ?> router(s)</div>
                         <?php else: ?>
-                            <span style="color:var(--text-muted);font-style:italic;">Hajasajili router</span>
+                            <span style="color:var(--text-muted);font-style:italic;">Hajasajili</span>
                         <?php endif; ?>
                     </td>
                     <td>
@@ -666,9 +605,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             <span style="color:var(--text-muted);font-style:italic;font-size:11.5px;">—</span>
                         <?php endif; ?>
                     </td>
-                    <td style="font-family:'Space Mono',monospace;font-size:12px;color:var(--accent);font-weight:700;">
-                        Tsh <?php echo number_format($row['mapato_mwezi'] ?? 0); ?>
-                    </td>
+                    <td style="font-family:'Space Mono',monospace;font-size:12px;color:var(--accent);font-weight:700;">Tsh <?php echo number_format($row['mapato_mwezi'] ?? 0); ?></td>
                     <td style="font-size:11px;">
                         <?php
                         $ss = $row['sub_status'] ?? null;
@@ -677,14 +614,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         ?>
                         <?php if ($ss): ?>
                             <span style="color:<?php echo $sub_color; ?>;font-weight:700;text-transform:uppercase;"><?php echo htmlspecialchars($ss); ?></span>
-                            <?php if ($row['sub_plan_name']): ?>
-                                <div style="color:var(--text-dim);"><?php echo htmlspecialchars($row['sub_plan_name']); ?></div>
-                            <?php endif; ?>
-                            <?php if ($ss === 'grace' && $row['sub_grace_until']): ?>
-                                <div style="color:#ffb020;">hadi <?php echo date('d M Y', strtotime($row['sub_grace_until'])); ?></div>
-                            <?php elseif ($row['sub_expires']): ?>
-                                <div style="color:var(--text-dim);">hadi <?php echo date('d M Y', strtotime($row['sub_expires'])); ?></div>
-                            <?php endif; ?>
+                            <?php if ($row['sub_plan_name']): ?><div style="color:var(--text-dim);"><?php echo htmlspecialchars($row['sub_plan_name']); ?></div><?php endif; ?>
                         <?php else: ?>
                             <span style="color:var(--text-muted);font-style:italic;">—</span>
                         <?php endif; ?>
@@ -692,35 +622,17 @@ document.addEventListener('DOMContentLoaded', function() {
                     <td>
                         <div class="actions-wrap">
                         <?php if(!$is_me): ?>
-
                             <?php if($status === 'pending'): ?>
-                                <button class="btn btn-approve"
-                                    onclick="funguaConfirm('approve',<?php echo $row['id']; ?>,'<?php echo htmlspecialchars($row['username'],ENT_QUOTES); ?>')">
-                                    <i class="fa-solid fa-check"></i> Kubali
-                                </button>
+                                <button class="btn btn-approve" onclick="funguaConfirm('approve',<?php echo $row['id']; ?>,'<?php echo htmlspecialchars($row['username'],ENT_QUOTES); ?>')"><i class="fa-solid fa-check"></i> Kubali</button>
                             <?php elseif($status === 'pending_reset'): ?>
-                                <button class="btn btn-resetpass"
-                                    onclick="funguaConfirm('approve',<?php echo $row['id']; ?>,'<?php echo htmlspecialchars($row['username'],ENT_QUOTES); ?>')">
-                                    <i class="fa-solid fa-key"></i> Approve Pass
-                                </button>
+                                <button class="btn btn-resetpass" onclick="funguaConfirm('approve',<?php echo $row['id']; ?>,'<?php echo htmlspecialchars($row['username'],ENT_QUOTES); ?>')"><i class="fa-solid fa-key"></i> Approve Pass</button>
                             <?php endif; ?>
-
                             <?php if($role !== 'admin'): ?>
-                                <button class="btn btn-makeadmin"
-                                    onclick="funguaConfirm('make_admin',<?php echo $row['id']; ?>,'<?php echo htmlspecialchars($row['username'],ENT_QUOTES); ?>')">
-                                    <i class="fa-solid fa-star"></i> Make Admin
-                                </button>
+                                <button class="btn btn-makeadmin" onclick="funguaConfirm('make_admin',<?php echo $row['id']; ?>,'<?php echo htmlspecialchars($row['username'],ENT_QUOTES); ?>')"><i class="fa-solid fa-star"></i> Make Admin</button>
                             <?php endif; ?>
-
-                            <button class="btn btn-delete"
-                                onclick="funguaConfirm('delete',<?php echo $row['id']; ?>,'<?php echo htmlspecialchars($row['username'],ENT_QUOTES); ?>')">
-                                <i class="fa-solid fa-trash-can"></i> Futa
-                            </button>
-
+                            <button class="btn btn-delete" onclick="funguaConfirm('delete',<?php echo $row['id']; ?>,'<?php echo htmlspecialchars($row['username'],ENT_QUOTES); ?>')"><i class="fa-solid fa-trash-can"></i> Futa</button>
                         <?php else: ?>
-                            <span style="color:var(--text-muted);font-size:12px;font-style:italic;">
-                                Mstari wako
-                            </span>
+                            <span style="color:var(--text-muted);font-size:12px;font-style:italic;">Mstari wako</span>
                         <?php endif; ?>
                         </div>
                     </td>
@@ -735,6 +647,30 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <footer class="footer">© <?php echo date('Y'); ?> Tech 5G Wi-Fi System &nbsp;·&nbsp; Haki zote zimehifadhiwa</footer>
 
+<!-- ═══ MODAL: HARIRI PLAN ═══ -->
+<div class="modal-overlay" id="planModal">
+    <div class="modal-content">
+        <div class="modal-icon">🏷️</div>
+        <h3 id="planModalTitle" style="margin-bottom:16px;">Hariri Plan</h3>
+        <input type="hidden" id="planEditId">
+        <div class="plan-edit-field">
+            <label>Bei (Tsh/mwaka)</label>
+            <input type="number" id="planEditPrice" min="1" step="1">
+        </div>
+        <div class="plan-edit-field">
+            <label>Idadi ya Routers</label>
+            <input type="number" id="planEditRouters" min="1" step="1">
+        </div>
+        <div class="plan-edit-field">
+            <label class="checkbox-label"><input type="checkbox" id="planEditActive"> Plan iko active (inaonekana kwa resellers)</label>
+        </div>
+        <div class="modal-btns">
+            <button class="btn-cancel" onclick="fungaPlanModal()">Ghairi</button>
+            <button class="btn-confirm" onclick="hifadhiPlan()">Hifadhi</button>
+        </div>
+    </div>
+</div>
+
 <!-- ═══ MODAL: CONFIRM ACTION ═══ -->
 <div class="modal-overlay" id="confirmModal">
     <div class="modal-content">
@@ -743,7 +679,7 @@ document.addEventListener('DOMContentLoaded', function() {
         <p id="modalMsg">Je, unataka kuendelea na kitendo hiki?</p>
         <div class="modal-btns">
             <button class="btn-cancel" onclick="fungaModal()">Ghairi</button>
-            <button class="btn-confirm green" id="confirmBtn" onclick="tekelezaAction()">
+            <button class="btn-confirm" id="confirmBtn" onclick="tekelezaAction()">
                 <i class="fa-solid fa-check" id="confirmIcon"></i>
                 <span id="confirmText">Ndiyo</span>
             </button>
@@ -752,30 +688,16 @@ document.addEventListener('DOMContentLoaded', function() {
 </div>
 
 <script>
-// ══ TOAST ══
 function showToast(msg, type) {
     type = type || 'info';
-    const icons = {
-        success: 'fa-circle-check',
-        error:   'fa-circle-xmark',
-        warning: 'fa-triangle-exclamation',
-        info:    'fa-circle-info'
-    };
     const c = document.getElementById('toastContainer');
     const t = document.createElement('div');
     t.className = 'toast ' + type;
-    t.innerHTML =
-        '<i class="fa-solid ' + (icons[type] || 'fa-circle-info') + ' ti"></i>' +
-        '<span class="toast-msg">' + msg + '</span>' +
-        '<button class="toast-close" onclick="this.parentElement.remove()">✕</button>';
+    t.innerHTML = '<span class="toast-msg">' + msg + '</span>';
     c.appendChild(t);
-    setTimeout(function() {
-        t.style.animation = 'toastOut 0.4s ease forwards';
-        setTimeout(function() { t.remove(); }, 400);
-    }, 4000);
+    setTimeout(() => { t.remove(); }, 3500);
 }
 
-// ══ SEARCH ══
 function searchTable() {
     const input = document.getElementById('liveSearch').value.toLowerCase();
     document.querySelectorAll('#userTable tbody tr').forEach(function(tr) {
@@ -783,36 +705,59 @@ function searchTable() {
     });
 }
 
-// ══ MODAL ══
+// ── FUNCTIONS ZA PLAN ──
+function funguaHaririPlan(id, jina, price, maxRouters, isActive) {
+    document.getElementById('planModalTitle').textContent = 'Hariri: ' + jina;
+    document.getElementById('planEditId').value = id;
+    document.getElementById('planEditPrice').value = price;
+    document.getElementById('planEditRouters').value = maxRouters;
+    document.getElementById('planEditActive').checked = (isActive == 1);
+    document.getElementById('planModal').classList.add('active');
+}
+
+function fungaPlanModal() {
+    document.getElementById('planModal').classList.remove('active');
+}
+
+function hifadhiPlan() {
+    const id         = document.getElementById('planEditId').value;
+    const price      = document.getElementById('planEditPrice').value;
+    const maxRouters = document.getElementById('planEditRouters').value;
+    const isActive   = document.getElementById('planEditActive').checked ? '1' : '0';
+
+    fetch('admin.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'ajax_action=update_plan&id=' + id + '&price=' + price + '&max_routers=' + maxRouters + '&is_active=' + isActive
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'success') {
+            const card = document.getElementById('plan-card-' + id);
+            if (card) {
+                card.querySelector('.plan-price-val').textContent = data.price;
+                card.querySelector('.plan-routers-val').textContent = data.max_routers;
+            }
+            showToast(data.msg, 'success');
+            fungaPlanModal();
+            setTimeout(() => { location.reload(); }, 1200);
+        } else {
+            showToast(data.msg || 'Hitilafu.', 'error');
+        }
+    })
+    .catch(() => showToast('Tatizo la mtandao au mfumo.', 'error'));
+}
+
+// ── CONFIRMATION MODALS & ACTIONS ──
 let pendingAction = null;
 let pendingId     = null;
 
 const modalConfigs = {
-    approve: {
-        icon: '✅', title: 'Kubali Mtumiaji',
-        msg: function(u){ return 'Una uhakika unataka kumkubali <strong>' + u + '</strong>?'; },
-        btnClass: 'green', btnIcon: 'fa-check', btnText: 'Ndiyo, Kubali'
-    },
-    make_admin: {
-        icon: '⭐', title: 'Fanya Admin',
-        msg: function(u){ return 'Una uhakika unataka kumfanya <strong>' + u + '</strong> kuwa Admin?'; },
-        btnClass: 'orange', btnIcon: 'fa-star', btnText: 'Ndiyo, Fanya Admin'
-    },
-    delete: {
-        icon: '🗑️', title: 'Futa Mtumiaji',
-        msg: function(u){ return 'Una uhakika unataka kumfuta <strong>' + u + '</strong>?<br><small style="color:var(--red);">Kitendo hiki hakiwezi kurudishwa!</small>'; },
-        btnClass: 'red', btnIcon: 'fa-trash-can', btnText: 'Ndiyo, Futa'
-    },
-    payout_approve: {
-        icon: '💰', title: 'Thibitisha Cash Out',
-        msg: function(u, amt){ return 'Unathibitisha kuwa umelipa TSh <strong>' + amt + '</strong> kwa reseller <strong>' + u + '</strong>?'; },
-        btnClass: 'green', btnIcon: 'fa-check', btnText: 'Ndiyo, Nimefanya Malipo'
-    },
-    payout_reject: {
-        icon: '❌', title: 'Kataa Cash Out',
-        msg: function(u, amt){ return 'Una uhakika unataka kukataa ombi la TSh <strong>' + amt + '</strong> la <strong>' + u + '</strong>?<br><small style="color:var(--accent);">Kiasi hiki kitarudishwa kwenye salio lake.</small>'; },
-        btnClass: 'red', btnIcon: 'fa-xmark', btnText: 'Ndiyo, Kataa & Rejesha'
-    }
+    approve: { icon: '✅', title: 'Kubali Mtumiaji', msg: (u)=>'Kumkubali <strong>'+u+'</strong>?', btnClass: 'green', btnIcon: 'fa-check', btnText: 'Ndiyo, Kubali' },
+    make_admin: { icon: '⭐', title: 'Fanya Admin', msg: (u)=>'Kumfanya <strong>'+u+'</strong> kuwa Admin?', btnClass: 'orange', btnIcon: 'fa-star', btnText: 'Ndiyo, Fanya Admin' },
+    delete: { icon: '🗑️', title: 'Futa Mtumiaji', msg: (u)=>'Kumfuta <strong>'+u+'</strong>?', btnClass: 'red', btnIcon: 'fa-trash-can', btnText: 'Ndiyo, Futa' },
+    payout_approve: { icon: '💰', title: 'Thibitisha Cash Out', msg: (u, amt)=>'Umelipa TSh <strong>'+amt+'</strong> kwa <strong>'+u+'</strong>?', btnClass: 'green', btnIcon: 'fa-check', btnText: 'Ndiyo, Nimefanya Malipo' },
+    payout_reject: { icon: '❌', title: 'Kataa Cash Out', msg: (u, amt)=>'Kukataa ombi la TSh <strong>'+amt+'</strong> la <strong>'+u+'</strong>?', btnClass: 'red', btnIcon: 'fa-xmark', btnText: 'Ndiyo, Kataa & Rejesha' }
 };
 
 function funguaConfirm(action, id, username, extraParam = '') {
@@ -830,18 +775,11 @@ function funguaConfirm(action, id, username, extraParam = '') {
 
 function fungaModal() {
     document.getElementById('confirmModal').classList.remove('active');
-    pendingAction = null;
-    pendingId     = null;
+    pendingAction = null; pendingId = null;
 }
 
-document.getElementById('confirmModal').addEventListener('click', function(e) {
-    if (e.target === this) fungaModal();
-});
-
-// ══ TEKELEZA ACTION (AJAX) ══
 function tekelezaAction() {
     if (!pendingAction || !pendingId) return;
-
     const action = pendingAction;
     const id     = pendingId;
     fungaModal();
@@ -851,53 +789,22 @@ function tekelezaAction() {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'ajax_action=' + action + '&id=' + id
     })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
+    .then(r => r.json())
+    .then(data => {
         if (data.status === 'success') {
             showToast(data.msg, 'success');
-
-            if (action === 'payout_approve' || action === 'payout_reject') {
-                const pRow = document.getElementById('payout-row-' + id);
-                if (pRow) {
-                    pRow.classList.add('removing');
-                    setTimeout(function() { pRow.remove(); }, 420);
-                }
-                return;
-            }
-
-            const row = document.getElementById('user-row-' + id);
-            if (!row) return;
-
-            if (action === 'delete') {
-                row.classList.add('removing');
-                setTimeout(function() { row.remove(); }, 420);
-
-            } else if (action === 'approve') {
-                const statusCell = row.querySelector('td:nth-child(6)');
-                if (statusCell) statusCell.innerHTML = '<span class="badge badge-approved">APPROVED</span>';
-                const approveBtn = row.querySelector('.btn-approve, .btn-resetpass');
-                if (approveBtn) approveBtn.remove();
-
-            } else if (action === 'make_admin') {
-                const roleCell = row.querySelector('td:nth-child(7)');
-                if (roleCell) roleCell.innerHTML = '<span class="badge badge-admin">ADMIN</span>';
-                const adminBtn = row.querySelector('.btn-makeadmin');
-                if (adminBtn) adminBtn.remove();
-            }
+            setTimeout(() => { location.reload(); }, 1000);
         } else {
             showToast(data.msg || 'Imeshindikana.', 'error');
         }
     })
-    .catch(function() {
-        showToast('Tatizo la mtandao. Jaribu tena.', 'error');
-    });
+    .catch(() => showToast('Tatizo la mtandao.', 'error'));
 }
 
-// ══ HALI YA MIKROTIK KWA KILA MTUMIAJI ══
+// ── MIKROTIK STATUS CHECK ──
 (function() {
     const badges = Array.from(document.querySelectorAll('.mikrotik-status[data-uid]'));
     let i = 0;
-
     function angaliaMmoja() {
         if (i >= badges.length) return;
         const badge = badges[i];
@@ -905,8 +812,8 @@ function tekelezaAction() {
         const routerIds = badge.getAttribute('data-router-ids') || '';
 
         fetch('admin.php?ajax_mikrotik_status=1&uid=' + encodeURIComponent(uid) + '&router_ids=' + encodeURIComponent(routerIds))
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
+            .then(r => r.json())
+            .then(data => {
                 if (data.status === 'success' && data.total > 0 && data.online === data.total) {
                     badge.className = 'badge badge-online';
                     badge.innerHTML = '<i class="fa-solid fa-circle" style="font-size:6px;"></i> ' + data.online + '/' + data.total + ' ONLINE';
@@ -918,16 +825,12 @@ function tekelezaAction() {
                     badge.innerHTML = '<i class="fa-solid fa-circle" style="font-size:6px;"></i> OFFLINE';
                 }
             })
-            .catch(function() {
+            .catch(() => {
                 badge.className = 'badge badge-offline';
                 badge.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="font-size:9px;"></i> HITILAFU';
             })
-            .finally(function() {
-                i++;
-                angaliaMmoja();
-            });
+            .finally(() => { i++; angaliaMmoja(); });
     }
-
     if (badges.length > 0) angaliaMmoja();
 })();
 </script>
