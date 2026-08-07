@@ -18,6 +18,7 @@
 session_start();
 include 'login_signup.php';
 require_once 'payment_helper.php';
+require_once 'dalipay_client.php';   // ISP Gateway ya Dalipay (malipo halisi)
 
 // ── 1. POKEA DATA KUTOKA FOMU YA index_backup.php ──
 $package_type = strtolower(trim($_POST['package_type'] ?? ''));
@@ -47,6 +48,13 @@ if (empty($package_type) || $user_id <= 0 || $router_id <= 0 || empty($namba_sim
 }
 if (!preg_match('/^0[67]\d{8}$/', $namba_simu)) {
     onyeshaUkurasaWaHitilafu("Namba ya simu '$namba_simu' si sahihi. Tumia muundo: 07XXXXXXXX.");
+}
+
+// Gateway inakubali Vodacom, Tigo/Yas, Airtel na Halotel pekee. Tunakagua
+// HAPA (kabla ya kutengeneza rekodi yoyote) ili mteja wa TTCL apate ujumbe
+// wazi mara moja, badala ya muamala kukwama kama 'failed' bila maelezo.
+if (dalipayProviderFromPhone($namba_simu) === null) {
+    onyeshaUkurasaWaHitilafu("Mtandao wa namba '$namba_simu' hauwezi kutumika kwa malipo kwa sasa. Tafadhali tumia namba ya Vodacom, Tigo/Yas, Airtel au Halotel.");
 }
 
 // ── 3. THIBITISHA router_id HII KWELI NI YA user_id HII (usalama) ──
@@ -83,18 +91,32 @@ $ins->bind_param("iissdsss", $user_id, $router_id, $namba_simu, $package_type, $
 $ins->execute();
 $ins->close();
 
-/**
- * ⚠️ MOCK - AzamPay halisi itawekwa hapa.
- */
-function tumaUSSDPush($namba_simu, $kiasi, $transaction_id) {
-    return ['success' => true, 'message' => 'USSD Push imetumwa (MOCK).'];
-}
+// ── 7. ANZISHA MALIPO HALISI KWENYE GATEWAY (USSD prompt kwenye simu) ──
+// Rekodi ya 'pending' tayari ipo hapo juu KABLA ya ombi hili kwa makusudi:
+// kama gateway itapokea ombi lakini jibu lipotee njiani (timeout), tunataka
+// bado tuwe na rekodi yenye external_id ile ile ambayo webhook itaitambua.
+if (!PAYMENT_MOCK_MODE) {
+    $malipo = dalipayCreateCollection($namba_simu, $price, $transaction_id);
 
-$malipo = tumaUSSDPush($namba_simu, $price, $transaction_id);
+    if (!$malipo['ok']) {
+        markTransactionFailed($conn, $transaction_id, $malipo['error']);
+        logSystemError($conn, 'lipia.php', 'Kuanzisha collection kumeshindikana: ' . $malipo['error'], [
+            'user_id'   => $user_id,
+            'router_id' => $router_id,
+            'context'   => ['transaction_id' => $transaction_id, 'phone' => $namba_simu],
+        ]);
+        onyeshaUkurasaWaHitilafu("Imeshindikana kuanzisha malipo: " . $malipo['error']);
+    }
 
-if (!$malipo['success']) {
-    markTransactionFailed($conn, $transaction_id, $malipo['message']);
-    onyeshaUkurasaWaHitilafu("Imeshindikana kuanzisha malipo: " . $malipo['message']);
+    // Hifadhi vitambulisho vya gateway - uuid ndiyo tunayotumia kuuliza
+    // hali ya malipo (check_payment_status.php), na reference ndiyo namba
+    // ya kunukuu ukiwasiliana na Dalipay kuhusu muamala huu.
+    $g = $conn->prepare(
+        "UPDATE payment_transactions SET gateway_uuid=?, gateway_reference=? WHERE transaction_id=?"
+    );
+    $g->bind_param("sss", $malipo['uuid'], $malipo['reference'], $transaction_id);
+    $g->execute();
+    $g->close();
 }
 
 // ── 7. ONYESHA UKURASA WA "KUSUBIRI MALIPO" (JS itapoll hadi ikamilike) ──

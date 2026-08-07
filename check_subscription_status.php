@@ -3,18 +3,16 @@
  * check_subscription_status.php
  * -------------------------------------------------------------
  * Inapigwa poll na JS ya start_subscription_payment.php kila
- * sekunde 3. Sawa na check_payment_status.php (vocha), lakini kwa
- * malipo ya subscription. MOCK: baada ya MOCK_DELAY_SECONDS_SUB
- * kupita tangu ombi lilipoanzishwa, tunajikamilishia wenyewe kwa
- * kuita completeSubscriptionPayment().
+ * sekunde 3. Sawa kabisa na check_payment_status.php (vocha), lakini
+ * kwa malipo ya subscription: inauliza gateway kama reseller amekubali
+ * USSD prompt, kisha inaita completeSubscriptionPayment().
  * -------------------------------------------------------------
  */
 session_start();
 include 'login_signup.php';
 require_once 'subscription_helper.php';
+require_once 'dalipay_client.php';
 header('Content-Type: application/json');
-
-define('MOCK_DELAY_SECONDS_SUB', 6);
 
 $ref = trim($_GET['ref'] ?? '');
 if ($ref === '') {
@@ -22,7 +20,7 @@ if ($ref === '') {
     exit();
 }
 
-$stmt = $conn->prepare("SELECT id, user_id, status, starts_at FROM subscriptions WHERE payment_transaction_id = ? LIMIT 1");
+$stmt = $conn->prepare("SELECT id, user_id, status, starts_at, gateway_uuid FROM subscriptions WHERE payment_transaction_id = ? LIMIT 1");
 $stmt->bind_param("s", $ref);
 $stmt->execute();
 $row = $stmt->get_result()->fetch_assoc();
@@ -43,11 +41,41 @@ if ($row['status'] === 'expired') {
     exit();
 }
 
-// bado 'pending_payment' - angalia kama muda wa MOCK umepita
-$sekunde_zimepita = time() - strtotime($row['starts_at']);
-if ($sekunde_zimepita >= MOCK_DELAY_SECONDS_SUB) {
-    $result = completeSubscriptionPayment($conn, $ref);
-    echo json_encode($result);
-} else {
-    echo json_encode(['status' => 'pending']);
+// ── bado 'pending_payment' ──
+
+// MOCK (development bila keys): jikamilishe baada ya sekunde chache
+if (PAYMENT_MOCK_MODE) {
+    if ((time() - strtotime($row['starts_at'])) >= PAYMENT_MOCK_DELAY_SECONDS) {
+        echo json_encode(completeSubscriptionPayment($conn, $ref));
+    } else {
+        echo json_encode(['status' => 'pending']);
+    }
+    exit();
 }
+
+// HALISI: uliza gateway
+if (empty($row['gateway_uuid'])) {
+    echo json_encode(['status' => 'pending']);
+    exit();
+}
+
+$hali = dalipayCollectionStatus($row['gateway_uuid']);
+
+if (!$hali['ok']) {
+    // Hitilafu ya mtandao SIYO malipo kushindikana - jaribu tena poll ijayo.
+    echo json_encode(['status' => 'pending']);
+    exit();
+}
+
+if ($hali['status'] === 'success') {
+    echo json_encode(completeSubscriptionPayment($conn, $ref));
+    exit();
+}
+
+if ($hali['status'] === 'failed') {
+    markSubscriptionPaymentFailed($conn, $ref, 'Malipo hayakukamilika.');
+    echo json_encode(['status' => 'failed', 'message' => 'Malipo hayakukamilika. Hakikisha una salio kisha jaribu tena.']);
+    exit();
+}
+
+echo json_encode(['status' => 'pending']);

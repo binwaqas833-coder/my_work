@@ -39,6 +39,25 @@ define('APP_BASE_URL', rtrim(
 // hazitasomeka tena. Tengeneza mpya kwa: php -r "echo bin2hex(random_bytes(32));"
 define('MIKROTIK_ENC_KEY', getenv('MIKROTIK_ENC_KEY') ?: 'CHANGE_ME_dev_key_override_in_production');
 
+// ── ISP Gateway ya Dalipay (malipo halisi ya mobile money) ──
+// SIRI HIZI HAZIANDIKWI HAPA KAMWE. Production huzipokea kama env[...]
+// ndani ya FPM pool (/usr/local/apps/php82/etc/php-fpm.d/tech5g.conf) —
+// angalia DEPLOY_DALIPAY.md. Ukiziandika hapa zitaingia kwenye git.
+define('DALIPAY_BASE_URL', rtrim(getenv('DALIPAY_BASE_URL') ?: 'https://app.dalipay.co.tz/api/v1', '/'));
+define('DALIPAY_PUBLIC_KEY',      getenv('DALIPAY_PUBLIC_KEY')      ?: '');
+define('DALIPAY_SECRET_KEY',      getenv('DALIPAY_SECRET_KEY')      ?: '');
+define('DALIPAY_CALLBACK_SECRET', getenv('DALIPAY_CALLBACK_SECRET') ?: '');
+
+// Gateway inafanya kazi tu ikiwa key pair zote mbili zipo.
+define('DALIPAY_ENABLED', DALIPAY_PUBLIC_KEY !== '' && DALIPAY_SECRET_KEY !== '');
+
+// MOCK: bila keys (mfano PC yako ya development) mfumo unaiga malipo
+// yanayofanikiwa baada ya sekunde chache, ili uweze kutest bila pesa halisi.
+// Hakuna njia ya kuwasha mock pale keys zilipo — production KAMWE haitoi
+// vocha bila malipo halisi kuthibitika.
+define('PAYMENT_MOCK_MODE', !DALIPAY_ENABLED);
+define('PAYMENT_MOCK_DELAY_SECONDS', 6);
+
 // ── Error display: zima kwenye production (log badala ya kuonyesha) ──
 if (APP_ENV === 'production') {
     ini_set('display_errors', '0');

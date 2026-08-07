@@ -49,6 +49,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_cashout'])) {
 
     if ($amount <= 0) {
         $toast = ['type' => 'error', 'msg' => 'Tafadhali weka kiasi sahihi cha fedha. ⚠️'];
+    } elseif ($amount > 5000000) {
+        // Kikomo cha gateway yenyewe (Dalipay: 1 - 5,000,000). Tunakikagua HAPA
+        // ili reseller ajue mara moja, badala ya ombi kushikilia salio lake
+        // kisha likataliwe wakati admin anaidhinisha.
+        $toast = ['type' => 'error', 'msg' => 'Kiasi cha juu kwa ombi moja ni TSh 5,000,000. Gawa ombi lako. ⚠️'];
     } elseif ($amount > $total_balance) {
         $toast = ['type' => 'error', 'msg' => "Huwezi kutoa kiasi kinachozidi salio lako la sasa (TSh " . number_format($total_balance, 2) . "). 🚫"];
     } else {

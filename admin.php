@@ -4,6 +4,7 @@ include 'login_signup.php';
 require_once 'routeros_api.class.php';
 require_once 'mikrotik_helper.php';     // helper mpya (mysqli version)
 require_once 'subscription_helper.php'; // startTrialSubscription(), n.k.
+require_once 'payout_helper.php';       // sendPayoutToGateway() - kutoa pesa Dalipay
 
 // ── SESSION TIMEOUT (dakika 15) ──
 $timeout = 900;
@@ -79,32 +80,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
         mysqli_stmt_close($stmt_user);
 
         if ($reseller) {
-            $stmt = mysqli_prepare($conn, "UPDATE payout_requests SET status = 'approved' WHERE id = ? AND status = 'pending'");
-            mysqli_stmt_bind_param($stmt, "i", $id);
-            $updated = mysqli_stmt_execute($stmt) && mysqli_stmt_affected_rows($stmt) > 0;
-            mysqli_stmt_close($stmt);
+            // Ituma KWELI kwenye Dalipay. sendPayoutToGateway() ndiyo inayodai
+            // ombi kwa njia ya atomic, hivyo bofya-mara-mbili hakuwezi kutuma
+            // malipo mawili. Salio lilishakatwa wakati reseller aliomba.
+            $po = sendPayoutToGateway($conn, (int)$id, (int)$_SESSION['user_id']);
 
-            if ($updated) {
+            if ($po['ok']) {
+                // Barua pepe YA UKWELI: pesa BADO haijafika. Dalipay wanapaswa
+                // kuidhinisha kwanza. Awali ujumbe ulisema "malipo yamekamilika"
+                // jambo ambalo halikuwa kweli hata kabla ya API kuunganishwa.
                 $email_sent = false;
                 if (!empty($reseller['email'])) {
                     require_once __DIR__ . '/email_helper.php';
 
-                    $subject = "Ombi Lako la Cash Out Limethibitishwa! ✅";
+                    $subject = "Ombi Lako la Cash Out Limeidhinishwa ✅";
                     $msg = "Habari <strong>" . htmlspecialchars($reseller['username'], ENT_QUOTES) . "</strong>,<br><br>" .
-                           "Ombi lako la Cash Out la kiwango cha <strong>TSh " . number_format($reseller['amount'], 2) . "</strong> " .
-                           "limethibitishwa kikamilifu na malipo yamekamilika.<br><br>" .
+                           "Ombi lako la Cash Out la <strong>TSh " . number_format($reseller['amount'], 2) . "</strong> " .
+                           "limeidhinishwa na limepelekwa kwenye mfumo wa malipo.<br><br>" .
+                           "Pesa itaingia kwenye namba yako ya simu muda mfupi ujao. " .
+                           "Utapokea taarifa nyingine pindi itakapokamilika.<br><br>" .
                            "Asante kwa kuendelea kufanya kazi na Tech 5G!";
 
                     $email_sent = sendStatusEmail($reseller['email'], $reseller['username'], $subject, $msg);
                 }
 
-                $final_msg = $email_sent
-                    ? 'Cash Out imethibitishwa na Barua Pepe imetumwa kwa reseller! ✅'
-                    : 'Cash Out imethibitishwa, LAKINI barua pepe haikutumwa (angalia error_log). ⚠️';
-
-                echo json_encode(['status' => 'success', 'msg' => $final_msg, 'email_sent' => $email_sent]);
+                echo json_encode([
+                    'status' => 'success',
+                    'msg'    => 'Imepelekwa Dalipay ✅ — inasubiri idhini yao. Pesa BADO haijatumwa.'
+                              . ($email_sent ? ' Barua pepe imetumwa.' : ' (barua pepe haikutumwa)'),
+                    'email_sent' => $email_sent,
+                ]);
             } else {
-                echo json_encode(['status'=>'error', 'msg'=>'Ombi halijapatikana au tayari lilishachakatwa.']);
+                echo json_encode(['status' => 'error', 'msg' => $po['message']]);
             }
         } else {
             echo json_encode(['status'=>'error', 'msg'=>'Ombi halijapatikana au tayari lilishachakatwa.']);

@@ -1,0 +1,13 @@
+# Siri: KAMWE zisiingie kwenye git. Production hupokea hizi kama env[...]
+# ndani ya FPM pool (/usr/local/apps/php82/etc/php-fpm.d/tech5g.conf).
+.env
+.env.*
+*.local.php
+/root-credentials*
+
+# VS Code Local History extension
+.history/
+
+# Mfumo
+.DS_Store
+*.log

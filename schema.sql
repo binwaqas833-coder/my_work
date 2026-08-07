@@ -103,11 +103,14 @@ CREATE TABLE subscriptions (
     expires_at             DATETIME NOT NULL,
     grace_until            DATETIME NULL,
     amount_paid            DECIMAL(10,2) NULL,
-    payment_transaction_id VARCHAR(64) NULL,
+    payment_transaction_id VARCHAR(64) NULL,        -- SUB-... (external_id kwa gateway)
+    gateway_uuid           VARCHAR(64) NULL,        -- uuid ya Dalipay
+    gateway_reference      VARCHAR(64) NULL,        -- col_...
     created_at             TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_user (user_id),
     KEY idx_status (status),
-    KEY idx_plan_id (plan_id)
+    KEY idx_plan_id (plan_id),
+    KEY idx_gateway_uuid (gateway_uuid)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ── VIFURUSHI/BEI ZA KILA ROUTER (kila reseller-router ana bei zake) ──
@@ -186,8 +189,12 @@ CREATE TABLE payment_transactions (
     phone          VARCHAR(20)  NOT NULL,
     package_type   VARCHAR(100) NOT NULL,
     amount         DECIMAL(10,2) NOT NULL,
-    transaction_id VARCHAR(64)  NOT NULL UNIQUE,
+    transaction_id VARCHAR(64)  NOT NULL UNIQUE,   -- rejea YETU (external_id kwa gateway)
+    gateway_uuid      VARCHAR(64) NULL,             -- uuid ya Dalipay (kuuliza hali ya malipo)
+    gateway_reference VARCHAR(64) NULL,             -- col_... (kunukuu kwa Dalipay support)
     status         ENUM('pending','completed','failed') NOT NULL DEFAULT 'pending',
+    fail_reason    VARCHAR(255) NULL,               -- sababu halisi ya kushindikana
+    claimed_at     DATETIME     NULL,               -- ulinzi: webhook vs poll wasitengeneze vocha mbili
     voucher_code   VARCHAR(20)  NULL,
     client_mac     VARCHAR(20)  NULL,
     client_ip      VARCHAR(45)  NULL,
@@ -195,7 +202,8 @@ CREATE TABLE payment_transactions (
     updated_at     DATETIME     NULL,
     KEY idx_user (user_id),
     KEY idx_txn (transaction_id),
-    KEY idx_router_id (router_id)
+    KEY idx_router_id (router_id),
+    KEY idx_gateway_uuid (gateway_uuid)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ── MAOMBI YA CASH OUT (payout) ZA RESELLER ── [NDIO ZIADA: haikuwepo schema.sql ya zamani]
@@ -204,9 +212,22 @@ CREATE TABLE payout_requests (
     user_id      INT NOT NULL,
     phone_number VARCHAR(20) NOT NULL,
     amount       DECIMAL(10,2) NOT NULL,
-    status       ENUM('pending','approved','rejected') DEFAULT 'pending',
+    external_id       VARCHAR(30) NULL,             -- PO-... (external_id kwa gateway)
+    gateway_uuid      VARCHAR(64) NULL,
+    gateway_reference VARCHAR(64) NULL,             -- dsb_... (hali huulizwa kwa HII)
+    -- 'approved' ni ya zamani (malipo ya mkono). Mtiririko mpya:
+    -- pending -> awaiting_approval -> success | failed | rejected
+    status       ENUM('pending','approved','awaiting_approval','success','failed','rejected')
+                 NOT NULL DEFAULT 'pending',
+    fail_reason  VARCHAR(255) NULL,
+    approved_by  INT      NULL,                     -- admin aliyeidhinisha
+    approved_at  DATETIME NULL,
     created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    KEY idx_user_id (user_id)
+    updated_at   DATETIME NULL,
+    UNIQUE KEY uq_external_id (external_id),        -- kinga dhidi ya malipo mara mbili
+    KEY idx_user_id (user_id),
+    KEY idx_status (status),
+    KEY idx_gateway_reference (gateway_reference)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ── KUZUIA MAJARIBIO YA VOCHA MAKOSA MAKOSA (rate limiting) ──

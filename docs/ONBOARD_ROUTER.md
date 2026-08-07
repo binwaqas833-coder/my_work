@@ -10,15 +10,15 @@ zikiwa tayari kwa kurudia kwa kila router mpya. Kila `«...»` badilisha na tham
 
 ## 0. Mipangilio ya kudumu (reference)
 
-| Kipengele | Thamani |
-|---|---|
-| VPS public IP | `107.161.168.192` |
-| WireGuard interface (Tech5G) | `wg1` |
-| WireGuard port | `51821` (UDP) |
-| Tunnel subnet | `10.60.0.0/24` |
-| VPS hub tunnel IP | `10.60.0.1` |
-| VPS server public key | `hAnwIpw8hy8BWwZC5Pp+evtLUhaANc3ZZCIUcR9GNik=` |
-| Domain | `https://tech5g.co.tz` |
+| Kipengele                    | Thamani                                        |
+| ---------------------------- | ---------------------------------------------- |
+| VPS public IP                | `107.161.168.192`                              |
+| WireGuard interface (Tech5G) | `wg1`                                          |
+| WireGuard port               | `51821` (UDP)                                  |
+| Tunnel subnet                | `10.60.0.0/24`                                 |
+| VPS hub tunnel IP            | `10.60.0.1`                                    |
+| VPS server public key        | `hAnwIpw8hy8BWwZC5Pp+evtLUhaANc3ZZCIUcR9GNik=` |
+| Domain                       | `https://tech5g.co.tz`                         |
 
 **Tunnel IP zilizotumika:** `10.60.0.1` = hub · `10.60.0.2` = bin waqas (Router 1).
 **Router ijayo:** anza na `10.60.0.3`, kisha `.4`, `.5` … (kamwe usirudie namba).
@@ -39,6 +39,7 @@ ssh root@107.161.168.192
 ```
 
 Script hii:
+
 1. Inatengeneza key-pair ya router (`/etc/wireguard/tech5g_«jina».key/.pub`).
 2. Inaongeza peer kwenye `/etc/wireguard/wg1.conf` (AllowedIPs = `10.60.0.«octet»/32`).
 3. Inatekeleza LIVE kwa `wg syncconf` — **bila kuvunja** router zilizopo.
@@ -104,7 +105,8 @@ add chain=input in-interface=wg-tech5g action=accept comment="Tech5G VPN trusted
 /user add name=tech5g_api password="«PASSWORD_IMARA»" group=api-only
 ```
 
-> Kama group/user tayari ipo, RouterOS itasema "already exists" — sawa. Kubadili password:
+> Kama group
+> /user tayari ipo, RouterOS itasema "already exists" — sawa. Kubadili password:
 > `/user set tech5g_api password="«PASSWORD_IMARA»"`.
 
 ---
@@ -131,6 +133,7 @@ lakini mteja hataingia (profile haipo).
   zake za `tariffs` kwenye DB zilingane. Kwa router mpya, tumia underscore ili ilingane na fomu.)
 
 **Walled-garden** (lazima iruhusu portal kabla ya login) — tayari imo kwenye `.rsc`:
+
 ```rsc
 /ip hotspot walled-garden
 add dst-host=tech5g.co.tz
@@ -192,6 +195,7 @@ php -r 'require "/var/www/tech5g/routeros_api.class.php";
 $a=new RouterosAPI(); $a->connect_timeout=6;
 var_dump($a->connect("10.60.0.«octet»","tech5g_api","«PASSWORD»"));'
 ```
+
 `bool(true)` = tayari. Kisha fungua `https://tech5g.co.tz/index_backup.php?router_id=«ID»&mac=x&ip=x`
 — inapaswa kuonyesha vifurushi vya reseller, siyo "Router halijasajiliwa".
 
@@ -199,10 +203,10 @@ var_dump($a->connect("10.60.0.«octet»","tech5g_api","«PASSWORD»"));'
 
 ## Utatuzi wa haraka
 
-| Dalili | Sababu / Suluhisho |
-|---|---|
-| Hakuna `last-handshake` | Provider anazuia UDP 51821, au endpoint/port/keys si sahihi. Angalia `wg show wg1`. |
-| `invalid user name or password` | User `tech5g_api` haipo / password tofauti kwenye router. `/user set tech5g_api password=...` |
-| "Mawasiliano yamefeli" kwenye Save | Tunnel down, au IP si sahihi (tumia tunnel IP `10.60.0.x`, siyo LAN). |
-| Mteja analipa lakini haingii | Jina la profile la router halilingani na `tariffs.profile_name` (§4). |
-| Portal blank kabla ya login | Walled-garden haina `tech5g.co.tz` + IP ya VPS (§4). |
+| Dalili                             | Sababu / Suluhisho                                                                            |
+| ---------------------------------- | --------------------------------------------------------------------------------------------- |
+| Hakuna `last-handshake`            | Provider anazuia UDP 51821, au endpoint/port/keys si sahihi. Angalia `wg show wg1`.           |
+| `invalid user name or password`    | User `tech5g_api` haipo / password tofauti kwenye router. `/user set tech5g_api password=...` |
+| "Mawasiliano yamefeli" kwenye Save | Tunnel down, au IP si sahihi (tumia tunnel IP `10.60.0.x`, siyo LAN).                         |
+| Mteja analipa lakini haingii       | Jina la profile la router halilingani na `tariffs.profile_name` (§4).                         |
+| Portal blank kabla ya login        | Walled-garden haina `tech5g.co.tz` + IP ya VPS (§4).                                          |

@@ -12,6 +12,8 @@
 session_start();
 include 'login_signup.php';
 require_once 'subscription_helper.php';
+require_once 'dalipay_client.php';   // ISP Gateway ya Dalipay (malipo halisi)
+require_once 'error_logger.php';
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: index.php");
@@ -41,6 +43,9 @@ if ($plan_id <= 0 || empty($phone)) {
 if (!preg_match('/^0[67]\d{8}$/', $phone)) {
     onyeshaHitilafu("Namba ya simu '$phone' si sahihi. Tumia muundo: 07XXXXXXXX.");
 }
+if (dalipayProviderFromPhone($phone) === null) {
+    onyeshaHitilafu("Mtandao wa namba '$phone' hauwezi kutumika kwa malipo. Tumia Vodacom, Tigo/Yas, Airtel au Halotel.");
+}
 
 $p_stmt = $conn->prepare("SELECT * FROM subscription_plans WHERE id = ? AND is_active = 1 LIMIT 1");
 $p_stmt->bind_param("i", $plan_id);
@@ -54,17 +59,24 @@ if (!$plan) {
 
 $transaction_id = createPendingSubscriptionPayment($conn, $my_id, $plan_id);
 
-/**
- * ⚠️ MOCK - AzamPay halisi itawekwa hapa (sawa kabisa na lipia.php).
- */
-function tumaUSSDPushSubscription($phone, $kiasi, $transaction_id) {
-    return ['success' => true, 'message' => 'USSD Push imetumwa (MOCK).'];
-}
-$malipo = tumaUSSDPushSubscription($phone, $plan['price'], $transaction_id);
+// ── ANZISHA MALIPO HALISI KWENYE GATEWAY (USSD prompt kwenye simu) ──
+if (!PAYMENT_MOCK_MODE) {
+    $malipo = dalipayCreateCollection($phone, (float)$plan['price'], $transaction_id, $_SESSION['username'] ?? '');
 
-if (!$malipo['success']) {
-    markSubscriptionPaymentFailed($conn, $transaction_id, $malipo['message']);
-    onyeshaHitilafu("Imeshindikana kuanzisha malipo: " . $malipo['message']);
+    if (!$malipo['ok']) {
+        markSubscriptionPaymentFailed($conn, $transaction_id, $malipo['error']);
+        logSystemError($conn, 'start_subscription_payment.php',
+            'Kuanzisha malipo ya subscription kumeshindikana: ' . $malipo['error'],
+            ['user_id' => $my_id, 'context' => ['transaction_id' => $transaction_id, 'plan_id' => $plan_id]]);
+        onyeshaHitilafu("Imeshindikana kuanzisha malipo: " . $malipo['error']);
+    }
+
+    $g = $conn->prepare(
+        "UPDATE subscriptions SET gateway_uuid=?, gateway_reference=? WHERE payment_transaction_id=?"
+    );
+    $g->bind_param("sss", $malipo['uuid'], $malipo['reference'], $transaction_id);
+    $g->execute();
+    $g->close();
 }
 ?>
 <!DOCTYPE html>

@@ -3,8 +3,11 @@
  * payment_helper.php
  * -------------------------------------------------------------
  * Mantiki YA PAMOJA ya "malipo yamekamilika -> tengeneza voucher -> panda
- * MikroTik -> auto-login". Inatumika na check_payment_status.php (MOCK
- * kwa sasa) na baadaye azampay_callback.php (AzamPay halisi).
+ * MikroTik -> auto-login". Inaitwa na WATU WAWILI:
+ *   1. dalipay_webhook.php      - gateway inatuambia malipo yamekamilika
+ *   2. check_payment_status.php - poll ya ukurasa wa mteja (backstop, kwa
+ *      sababu gateway HAIRUDII webhook ikishindwa kufika mara ya kwanza)
+ * na pia retry_payment.php pale admin anapobonyeza "Kukamilisha".
  *
  * MUHIMU (MULTI-ROUTER): txn (payment_transactions) sasa ina router_id
  * yake yenyewe (iliyowekwa na lipia.php) - hii ndiyo chanzo cha ukweli
@@ -12,9 +15,6 @@
  * user huyu" kama ilivyokuwa awali.
  * -------------------------------------------------------------
  */
-
-define('AZAMPAY_MOCK_MODE', true);
-define('MOCK_DELAY_SECONDS', 6);
 
 require_once 'routeros_api.class.php';
 require_once 'mikrotik_helper.php';   // toleo JIPYA (multi-router)
@@ -42,6 +42,27 @@ function completeVoucherPayment($conn, $transaction_id)
     }
     if ($txn['status'] === 'failed') {
         return ['status' => 'failed', 'voucher_code' => null, 'message' => 'Malipo yalishindikana.'];
+    }
+
+    // ── ULINZI DHIDI YA VOCHA MBILI KWA MALIPO MAMOJA ──
+    // Webhook ya gateway na poll ya ukurasa wa mteja zinaweza kufika
+    // SEKUNDE MOJA. Bila ulinzi, zote mbili zingeona 'pending' na kila
+    // moja ingetengeneza vocha yake - mteja mmoja, vocha mbili, hasara
+    // kwa reseller. UPDATE ya masharti hapa chini inafanikiwa kwa MMOJA
+    // tu (MySQL inaifanya atomic); mwingine anaona affected_rows = 0.
+    $claim = $conn->prepare(
+        "UPDATE payment_transactions SET claimed_at = NOW()
+         WHERE transaction_id = ? AND status = 'pending' AND claimed_at IS NULL"
+    );
+    $claim->bind_param("s", $transaction_id);
+    $claim->execute();
+    $nimeidai = ($claim->affected_rows === 1);
+    $claim->close();
+
+    if (!$nimeidai) {
+        // Mwingine anaishughulikia SASA HIVI. Poll ijayo ya mteja itaona
+        // 'completed' pindi atakapomaliza.
+        return ['status' => 'pending', 'voucher_code' => null, 'message' => 'Malipo yanachakatwa...'];
     }
 
     $user_id      = (int)$txn['user_id'];
@@ -131,17 +152,43 @@ function completeVoucherPayment($conn, $transaction_id)
     return ['status' => 'completed', 'voucher_code' => $voucher_code, 'message' => 'Malipo yamekamilika.'];
 }
 
+/**
+ * Weka alama ya kushindikana + SABABU. Sababu inahifadhiwa (fail_reason)
+ * ili admin aone kwenye malipo_status.php kwa nini muamala ulikwama,
+ * badala ya "failed" tupu isiyoeleza kitu.
+ *
+ * claimed_at inarudishwa NULL ili "Kukamilisha" ya admin iweze kujaribu tena.
+ */
 function markTransactionFailed($conn, $transaction_id, $reason)
 {
-    $u = $conn->prepare("UPDATE payment_transactions SET status='failed', updated_at=NOW() WHERE transaction_id=?");
-    $u->bind_param("s", $transaction_id);
+    $reason = mb_substr((string)$reason, 0, 255);
+    $u = $conn->prepare(
+        "UPDATE payment_transactions
+         SET status='failed', fail_reason=?, claimed_at=NULL, updated_at=NOW()
+         WHERE transaction_id=?"
+    );
+    $u->bind_param("ss", $reason, $transaction_id);
     $u->execute();
     $u->close();
 }
 
+/**
+ * Jaribu tena muamala uliokwama (button ya "Kukamilisha" kwenye
+ * malipo_status.php). HAITUMII PESA MPYA - inadhania tayari umethibitisha
+ * kwenye dashboard ya Dalipay kuwa mteja KWELI amelipa.
+ *
+ * Inafuta claimed_at kwanza: muamala unaweza kuwa umekwama kwa sababu
+ * mchakato uliokuwa umeudai ulikufa katikati (mfano PHP timeout wakati
+ * router ilikuwa chini), na bila kufuta alama hiyo hakuna anayeweza
+ * kuudai tena - ungebaki 'pending' milele.
+ */
 function retryPaymentTransaction($conn, $transaction_id)
 {
-    $u = $conn->prepare("UPDATE payment_transactions SET status='pending' WHERE transaction_id=? AND status='failed'");
+    $u = $conn->prepare(
+        "UPDATE payment_transactions
+         SET status='pending', claimed_at=NULL
+         WHERE transaction_id=? AND status IN ('failed','pending')"
+    );
     $u->bind_param("s", $transaction_id);
     $u->execute();
     $u->close();
