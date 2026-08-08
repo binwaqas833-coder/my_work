@@ -11,3 +11,9 @@
 # Mfumo
 .DS_Store
 *.log
+
+# Siri za SMTP - hazitakiwi git-ni (zilikuwa hapa kwa bahati mbaya)
+mail_config.php
+
+# macOS AppleDouble junk (tar/scp huzitengeneza)
+._*
