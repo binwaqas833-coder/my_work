@@ -1,220 +1,230 @@
-# Barua pepe ya biashara — support@tech5g.co.tz (Zoho Mail)
+# Barua pepe ya biashara — support@tech5g.co.tz (kwenye VPS yetu wenyewe)
 
-Mwongozo wa kuweka barua pepe rasmi ya Tech 5G, na kuunganisha mfumo ili
-utume OTP ya usajili.
+Seva ya barua pepe imesimikwa **kwenye VPS yetu** (siyo Zoho wala mtoa huduma
+mwingine): **Postfix** (SMTP) + **Dovecot** (IMAP) + **OpenDKIM** (saini).
 
 ---
 
-## 0. Kwa nini Zoho, siyo seva yetu wenyewe?
+## 1. Hali ya sasa
 
-VPS yetu **haiwezi** kuendesha mail server:
-
-| Kipimo | Hali |
+| Kipengele | Hali |
 |---|---|
-| Port 25 kutoka nje (kutuma) | **IMEZUIWA** na mtoa huduma |
-| Port 25 kuingia (kupokea) | **IMEZUIWA** |
-| Port 143 / 993 / 465 / 587 kuingia | **ZIMEFUNGWA** |
-| Port 587 kutoka nje (relay) | ✅ Wazi |
+| Kupokea barua (port 25 kuingia) | ✅ Inafanya kazi |
+| IMAP kwa simu (port 993) | ✅ Inafanya kazi |
+| Kutuma kwa watumiaji walio-thibitishwa (587 / 465) | ✅ Inafanya kazi |
+| Saini ya DKIM | ✅ Inafanya kazi |
+| Kuzuia open relay | ✅ Imezuiwa (`454 Relay access denied`) |
+| **Kutuma NJE (kwenda Gmail n.k.)** | ❌ **Imezuiwa na mtoa huduma** |
 
-Pia `tech5g.co.tz` haikuwa na **MX**, **SPF** wala **DMARC** kabisa. Kutuma OTP
-kutoka IP mpya isiyo na sifa (reputation) kunamaanisha barua nyingi zingeenda
-**Spam** — jambo baya sana kwa code ya kuthibitisha akaunti.
+### Kuhusu kutuma nje — soma hii
 
-Zoho Mail (tier ya bure, domain moja) inatatua yote: mailbox halisi ya IMAP,
-deliverability nzuri, na SMTP relay kupitia port 587 ambayo tayari iko wazi.
+Mtoa huduma wa VPS (**microsafi / ms1.microsafi.com**) amezuia **port 25
+kutoka nje**. Uthibitisho halisi kutoka kwenye log ya seva:
+
+```
+connect to gmail-smtp-in.l.google.com[142.251.127.27]:25: Connection timed out
+connect to alt1.gmail-smtp-in.l.google.com[142.250.147.26]:25: Connection timed out
+connect to alt2.gmail-smtp-in.l.google.com[142.251.127.27]:25: Connection timed out
+connect to alt3.gmail-smtp-in.l.google.com[172.253.148.27]:25: Connection timed out
+```
+
+Siyo tatizo la usanidi wetu — hakuna firewall kwenye seva (`iptables` policy ni
+`ACCEPT`), na port 587 na 443 zinafanya kazi vizuri kutoka seva hiyo hiyo.
+Ni kizuizi cha mtandao wa mtoa huduma (jambo la kawaida kuzuia spam).
+
+**Barua zinazokwenda nje zitakwama kwenye foleni mpaka mojawapo ya haya:**
+
+**(a) Mtoa huduma afungue port 25 — NJIA INAYOPENDEKEZWA**
+Wasiliana na microsafi/rodlinehost na uombe:
+> "Please unblock outbound TCP port 25 for VPS 143.246.136.110. We run a
+> legitimate mail server for tech5g.co.tz. Also please set reverse DNS (PTR)
+> for 143.246.136.110 to tech5g.co.tz."
+
+**PTR ni muhimu pia** — kwa sasa IP yetu **haina** rekodi ya PTR
+(`NXDOMAIN`). Bila PTR, Gmail na Outlook hukataa au hupeleka Spam hata port
+25 ikifunguliwa.
+
+**(b) Pitisha barua kwenye relay ya port 587** (port 587 iko wazi)
+Hii inahitaji akaunti ya nje (Gmail, Brevo, SendGrid n.k.). Ni mstari mmoja:
+
+```bash
+postconf -e "relayhost = [smtp.gmail.com]:587"
+postconf -e "smtp_sasl_auth_enable = yes"
+echo "[smtp.gmail.com]:587 akaunti@gmail.com:APP-PASSWORD" > /etc/postfix/sasl_passwd
+chmod 600 /etc/postfix/sasl_passwd && postmap /etc/postfix/sasl_passwd
+systemctl reload postfix
+```
+(`smtp_sasl_password_maps` na `smtp_sasl_security_options` tayari zimewekwa.)
+
+> Mpaka mojawapo ifanyike, **OTP ya usajili haitawafikia watumiaji**. Kupokea
+> barua na kusoma kwa simu kunafanya kazi tayari.
 
 ---
 
-## 1. Fungua akaunti Zoho
+## 2. Rekodi za DNS — ZINAHITAJIKA
 
-1. Nenda <https://www.zoho.com/mail/> → **Sign Up** → chagua **Free Plan**
-   (Forever Free — watumiaji 5, domain moja).
-2. Chagua **"Sign up with a domain I already own"** na weka `tech5g.co.tz`.
-3. Tengeneza mtumiaji wa kwanza: **support@tech5g.co.tz**.
+DNS iko **rodlinehost.com** (`ns1.rodlinehost.com`, `ns2.rodlinehost.com`).
+Ingia → DNS Zone Editor → ongeza:
 
----
-
-## 2. Rekodi za DNS
-
-DNS ya `tech5g.co.tz` iko **rodlinehost.com** (`ns1.rodlinehost.com`,
-`ns2.rodlinehost.com`). Ingia kwenye paneli yao → DNS Zone Editor → ongeza:
-
-### (a) Kuthibitisha umiliki wa domain
-Zoho itakupa rekodi ya kipekee (TXT au CNAME) — **nakili ile inayoonekana
-kwenye skrini yako**, mfano:
-
-```
-Aina : TXT
-Jina : @        (au tech5g.co.tz)
-Thamani: zoho-verification=zbXXXXXXXX.zmverify.zoho.com
-```
-
-### (b) MX — kupokea barua pepe
-Futa MX yoyote ya zamani (hakuna kwa sasa), kisha ongeza tatu hizi:
-
+### (a) MX — kupokea barua
 | Aina | Jina | Kipaumbele | Thamani |
 |---|---|---|---|
-| MX | `@` | 10 | `mx.zoho.com` |
-| MX | `@` | 20 | `mx2.zoho.com` |
-| MX | `@` | 50 | `mx3.zoho.com` |
+| MX | `@` | 10 | `tech5g.co.tz` |
 
-> Ukichagua data centre ya Ulaya wakati wa kujisajili, tumia `mx.zoho.eu`,
-> `mx2.zoho.eu`, `mx3.zoho.eu`. Angalia ukurasa wa Zoho unaokuonyesha.
+> Tunatumia domain yenyewe kama seva ya barua (ina rekodi A tayari:
+> `143.246.136.110`) — hivyo hakuna haja ya `mail.tech5g.co.tz` wala cheti
+> kingine cha TLS.
 
-### (c) SPF — kuruhusu Zoho kutuma kwa niaba yetu
+### (b) SPF — nani anaruhusiwa kutuma
 ```
 Aina : TXT
 Jina : @
-Thamani: v=spf1 include:zoho.com ~all
+Thamani: v=spf1 a mx ip4:143.246.136.110 ~all
 ```
-⚠️ Kuwe na **rekodi MOJA tu** ya SPF kwenye domain. Kama utaongeza mtoa huduma
-mwingine baadaye, unganisha kwenye mstari mmoja, mfano:
-`v=spf1 include:zoho.com include:nyingine.com ~all`
+⚠️ Kuwe na rekodi **MOJA tu** ya SPF kwenye domain.
+Ukitumia relay ya nje (njia b hapo juu), ongeza yake pia, mfano:
+`v=spf1 a mx ip4:143.246.136.110 include:_spf.google.com ~all`
 
-### (d) DKIM — saini ya barua pepe
-Zoho → **Mail Admin Console** → *Domains* → `tech5g.co.tz` → *Email
-Configuration* → **DKIM** → *Add selector* (tumia `zoho`) → nakili public key
-utakayopewa:
+### (c) DKIM — saini (funguo tayari imetengenezwa kwenye seva)
 ```
 Aina : TXT
-Jina : zoho._domainkey
-Thamani: v=DKIM1; k=rsa; p=<key ndefu kutoka Zoho>
+Jina : mail._domainkey
+Thamani:
+v=DKIM1; h=sha256; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwSK+SqElbcyXQV9KOE7WRW58sGnznVUp1auDQ/j88hS9AbL7b8mOp3rQuwFx/Lr0Z4Y8ASatZmgbjnYkQ+4aUdP2J64mh6MqvygQ7WuCfw5hVCWv2E5X3KdLH23sjvoCnK2+Tr/dzIvEEgiU2JdF6JA/TvH1u0/zp+2Mot3hB6Oh21ZRVorSVFh8X9SwJqMz34c6RINd0ovMV548rC+2CIg+w24ciDqzP1ZIvGMgWDiBj3Gs//0/yjvH4HUigtCoi//RGTKX7bwIIOvs8AfS1dk3Ece6iX3zElCP7uqAa660JGBPrb4JOjvXvAdxT81fstqF5LMdDbKZHE8U5Tp5mwIDAQAB
 ```
-Kisha bonyeza **Verify** kwenye Zoho.
+> Baadhi ya paneli hukataa thamani ndefu. Ikiwa hivyo, igawe kwenye vipande
+> vya `"..."` viwili kama ilivyo kwenye
+> `/etc/opendkim/keys/tech5g.co.tz/mail.txt`.
 
-### (e) DMARC — inashauriwa
+### (d) DMARC
 ```
 Aina : TXT
 Jina : _dmarc
-Thamani: v=DMARC1; p=none; rua=mailto:support@tech5g.co.tz; pct=100; adkim=s; aspf=s
+Thamani: v=DMARC1; p=none; rua=mailto:support@tech5g.co.tz
 ```
-Anza na `p=none` (kuchunguza tu). Baada ya wiki 2 ukiona ripoti ni safi,
-badilisha kuwa `p=quarantine` kisha `p=reject`.
+Anza na `p=none`. Baada ya wiki mbili ukiona ripoti ni safi, badilisha kuwa
+`p=quarantine` kisha `p=reject`.
 
-### Kuthibitisha rekodi zimeenea
+### (e) PTR (reverse DNS)
+**Haiwezi kuwekwa na sisi** — ni ya mtoa huduma wa VPS. Waombe iwe
+`tech5g.co.tz` (angalia ujumbe wa §1a).
+
+### Kuthibitisha
 ```bash
 dig +short MX  tech5g.co.tz
 dig +short TXT tech5g.co.tz
-dig +short TXT zoho._domainkey.tech5g.co.tz
+dig +short TXT mail._domainkey.tech5g.co.tz
 dig +short TXT _dmarc.tech5g.co.tz
+dig +short -x 143.246.136.110
 ```
 
 ---
 
-## 3. Unganisha mfumo (OTP na alerts)
+## 3. Mipangilio ya simu (mobile)
 
-Mfumo hutuma barua pepe kupitia SMTP. Tumia **App Password** ya Zoho, siyo
-password yako ya kuingia:
-
-**Zoho → My Account → Security → App Passwords → Generate New Password**
-(jina: `tech5g-app`). Nakili herufi utakazopewa.
-
-Kisha kwenye VPS, hariri pool ya FPM:
-
-```bash
-nano /etc/php-fpm-tech5g/pool.d/tech5g.conf
-```
-
-Jaza thamani ya `SMTP_PASS` (mistari mingine tayari ipo):
-
-```ini
-env[SMTP_HOST]      = "smtp.zoho.com"
-env[SMTP_PORT]      = "587"
-env[SMTP_SECURE]    = "tls"
-env[SMTP_USER]      = "support@tech5g.co.tz"
-env[SMTP_PASS]      = "APP-PASSWORD-YAKO-HAPA"
-env[MAIL_FROM]      = "support@tech5g.co.tz"
-env[MAIL_FROM_NAME] = "Tech 5G Wi-Fi"
-```
-
-Weka pia kwenye `/root/.tech5g-credentials` (kwa cron/CLI), kisha:
-
-```bash
-systemctl restart php-fpm-tech5g
-```
-
-### Kupima
-```bash
-cd /var/www/tech5g
-set -a; . /root/.tech5g-credentials; set +a
-/usr/local/apps/php82/bin/php -r '
-require "mailer.php";
-var_dump(tech5gSendMail("email-yako@gmail.com","Jaribio","Jaribio la Tech 5G","<p>Inafanya kazi!</p>"));'
-```
-`bool(true)` = imefanikiwa. Ikirudisha `false`, angalia
-`/var/log/php-fpm-tech5g.log`.
-
----
-
-## 4. Mipangilio ya simu (mobile)
-
-### Njia rahisi: app rasmi
-Sakinisha **Zoho Mail** (Android / iOS), ingia na `support@tech5g.co.tz`.
-Hakuna mipangilio ya mkono inayohitajika.
-
-### Njia ya mkono (Gmail app, Outlook, Apple Mail)
-Chagua **IMAP** (siyo POP) ili barua zisomeke kwenye vifaa vyote.
+Tumia **IMAP** (siyo POP) ili barua zionekane kwenye vifaa vyote.
 
 **Kupokea — IMAP**
 
 | Kipengele | Thamani |
 |---|---|
-| Server | `imap.zoho.com` |
+| Server | `tech5g.co.tz` |
 | Port | `993` |
 | Usalama | **SSL/TLS** |
-| Username | `support@tech5g.co.tz` |
-| Password | App Password ya Zoho |
+| Username | `support@tech5g.co.tz` (anwani KAMILI) |
+| Password | ya sanduku (iko `/root/.tech5g-credentials`) |
 
 **Kutuma — SMTP**
 
 | Kipengele | Thamani |
 |---|---|
-| Server | `smtp.zoho.com` |
-| Port | `465` (SSL) — au `587` na STARTTLS |
+| Server | `tech5g.co.tz` |
+| Port | `465` (SSL/TLS) — au `587` na STARTTLS |
 | Usalama | **SSL/TLS** (au STARTTLS kwa 587) |
-| Uthibitisho | **Ndiyo** — jina/password sawa na IMAP |
+| Uthibitisho | **Ndiyo** — sawa na IMAP |
 | Username | `support@tech5g.co.tz` |
-| Password | App Password ya Zoho |
-
-> Ukiwasha 2FA (inashauriwa), **lazima** utumie App Password kwenye simu —
-> password ya kawaida itakataliwa.
->
-> Kama ulichagua data centre ya Ulaya: `imap.zoho.eu` / `smtp.zoho.eu`.
+| Password | ile ile |
 
 ### iPhone
 Settings → Mail → Accounts → Add Account → **Other** → Add Mail Account →
-jaza jina, email, password → **Next** → chagua **IMAP** → jaza server za juu.
+jaza jina/email/password → **Next** → chagua **IMAP** → jaza server za juu →
+Save.
 
 ### Android (Gmail app)
-Gmail → Settings → Add account → **Other** → weka email → **Manual setup** →
+Gmail → Settings → Add account → **Other** → weka anwani → **Manual setup** →
 **Personal (IMAP)** → jaza server za juu.
 
----
-
-## 5. Kinachotokea kwenye mfumo baada ya haya
-
-1. Mtumiaji anajisajili (`index.php`).
-2. `process_engine.php` inathibitisha email, inatengeneza akaunti yenye
-   `email_verified = 0`, na kutuma OTP ya tarakimu 6.
-3. Anapelekwa `verify_email.php` kuweka code.
-4. Code ikikubalika → `email_verified = 1`. Bado anasubiri **Admin
-   a-approve** kama ilivyokuwa awali.
-5. Akijaribu kuingia kabla ya kuthibitisha, anarudishwa kwenye ukurasa wa OTP
-   na kupewa code mpya.
-
-**Ulinzi uliopo:** OTP inahifadhiwa kama *hash* (siyo wazi), inaisha baada ya
-dakika 10, majaribio 5 tu, kutuma tena mara moja kwa sekunde 60 na si zaidi
-ya 5 kwa saa. Angalia `otp_helper.php`.
+> Cheti ni cha Let's Encrypt kwa `tech5g.co.tz`, hivyo simu haitalalamika —
+> mradi utumie **`tech5g.co.tz`** kama jina la server (siyo IP).
 
 ---
 
-## 6. Usalama — muhimu
+## 4. Kuongeza sanduku jipya la barua
 
-Password ya zamani ya Gmail (`mail_config.php`) **ilikuwa imepakiwa GitHub**.
-Faili hiyo imeondolewa kwenye git na kwenye seva, na sasa iko kwenye
-`.gitignore`. **Hakikisha umei-revoke** kwenye
-<https://myaccount.google.com/apppasswords> — kuiondoa kwenye code
-hakuizimi.
+```bash
+/root/tech5g-add-mailbox.sh mauzo@tech5g.co.tz
+```
+Script inatengeneza password, inaiongeza Dovecot na Postfix, na kupakia upya
+huduma. Lakabu (aliases) ziko `/etc/postfix/virtual` — `postmaster@`,
+`abuse@`, `info@` na `noreply@` tayari zinaelekezwa `support@`.
 
-Siri mpya za SMTP **hazitakiwi kamwe** kuandikwa ndani ya code — ziko
-`env[...]` kwenye pool ya FPM pekee.
+---
+
+## 5. Mfumo (OTP) unavyotumia seva hii
+
+`mailer.php` inatuma kupitia SMTP:
+
+```ini
+env[SMTP_HOST]      = "tech5g.co.tz"
+env[SMTP_PORT]      = "587"
+env[SMTP_SECURE]    = "tls"
+env[SMTP_USER]      = "support@tech5g.co.tz"
+env[SMTP_PASS]      = "..."
+env[MAIL_FROM]      = "support@tech5g.co.tz"
+env[MAIL_FROM_NAME] = "Tech 5G Wi-Fi"
+```
+(ziko `/etc/php-fpm-tech5g/pool.d/tech5g.conf` na `/root/.tech5g-credentials`)
+
+Kupima:
+```bash
+cd /var/www/tech5g
+set -a; . /root/.tech5g-credentials; set +a
+/usr/local/apps/php82/bin/php -r '
+require "mailer.php";
+var_dump(tech5gSendMail("support@tech5g.co.tz","S","Jaribio","<p>Hujambo</p>"));'
+```
+
+---
+
+## 6. Uendeshaji wa kila siku
+
+```bash
+systemctl status postfix dovecot opendkim   # hali
+postqueue -p                                # foleni
+postqueue -f                                # lazimisha kutuma
+postsuper -d ALL                            # futa foleni yote
+journalctl -u postfix -u dovecot -f         # log moja kwa moja
+doveadm mailbox status -u support@tech5g.co.tz messages INBOX
+```
+
+### Cheti cha TLS
+Postfix na Dovecot wanatumia cheti kilekile cha Apache
+(`/etc/letsencrypt/live/tech5g.co.tz/`). Certbot ikisasisha, **lazima**
+wapakie upya. Deploy hook iko:
+`/etc/letsencrypt/renewal-hooks/deploy/reload-mail.sh`
+
+### sendmail ya zamani
+Sendmail ya Webuzo ime-**mask**-iwa (`systemctl mask sendmail`) kwa sababu
+ilikuwa imeshika port 25 na 587. Usiiwashe tena — itagongana na Postfix.
+
+---
+
+## 7. Usalama
+
+- Open relay **imezuiwa**: kutuma kunahitaji uthibitisho (`permit_sasl_authenticated, reject`).
+- TLS ni **lazima** kwenye 587/465; Dovecot ina `ssl = required`.
+- Password za masanduku zimehifadhiwa kama **SHA512-CRYPT** ndani ya
+  `/etc/dovecot/users` (chmod 640, root:dovecot).
+- Password ya zamani ya Gmail iliyokuwa `mail_config.php` **ilipakiwa GitHub**.
+  Faili imeondolewa, lakini **lazima i-revoke-iwe** kwenye
+  <https://myaccount.google.com/apppasswords>.
