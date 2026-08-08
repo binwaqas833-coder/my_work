@@ -201,19 +201,25 @@ function dalipayCollectionStatus(string $uuid): array
  */
 function dalipayCreateDisbursement(string $namba_simu, float $kiasi, string $external_id, string $jina_mpokeaji = '', string $maelezo = ''): array
 {
+    // ── UKAGUZI WA HAPA NYUMBANI (pre-flight) ──
+    // 'sent' => false inamaanisha ombi HALIKUWAHI KUONDOKA kwenye seva yetu.
+    // Ni MUHIMU: mwitaji (payout_helper.php) hutumia bendera hii kujua kwamba
+    // HAKUNA malipo yaliyoanzishwa, hivyo ni SALAMA kurudisha salio mara moja.
+    // Bila bendera hii, makosa haya yalionekana kama "hali haijulikani" ($http=0)
+    // na salio la reseller lilibaki limeshikiliwa milele bila sababu.
     $provider = dalipayProviderFromPhone($namba_simu);
     if ($provider === null) {
-        return ['ok' => false, 'uuid' => null, 'reference' => null, 'status' => null,
+        return ['ok' => false, 'sent' => false, 'uuid' => null, 'reference' => null, 'status' => null,
                 'error' => 'Mtandao wa namba hii hauwezi kupokea malipo. Tumia Vodacom, Tigo/Yas, Airtel au Halotel.'];
     }
     if (strlen($external_id) > 30) {
-        return ['ok' => false, 'uuid' => null, 'reference' => null, 'status' => null,
+        return ['ok' => false, 'sent' => false, 'uuid' => null, 'reference' => null, 'status' => null,
                 'error' => 'Rejea ya muamala ni ndefu kupita kiasi.'];
     }
 
     $kiasi_int = (int)round($kiasi);
     if ($kiasi_int < 1 || $kiasi_int > 5000000) {
-        return ['ok' => false, 'uuid' => null, 'reference' => null, 'status' => null,
+        return ['ok' => false, 'sent' => false, 'uuid' => null, 'reference' => null, 'status' => null,
                 'error' => 'Kiasi lazima kiwe kati ya TSh 1 na TSh 5,000,000.'];
     }
 

@@ -33,7 +33,7 @@ Kama unatumia `run-after-reset=tech5g_router_setup.rsc` pamoja na Hatua 0B, scri
 | 8 | Anti-sharing (TTL manipulation) | — |
 | 9 | NAT (Masquerade) | — |
 | 10 | Muda (Timezone — Dar es Salaam) | — |
-| 11 | Walled Garden — malipo (AzamPay n.k.) | — |
+| 11 | Walled Garden — malipo (Dalipay n.k.) | — |
 | 12 | Walled Garden IP — ruhusu server yako ya PHP | — |
 | 13 | Hotspot User Profiles: `daily`, `weekly`, `monthly`, `trial` (dakika 5, 4M/4M) | — |
 | 14 | API service inawashwa (port 8728) | — |

@@ -40,9 +40,16 @@ inatengenezwa **mara moja tu** (siyo mbili kwa malipo mamoja).
 ## 1. VPS — weka siri kwenye FPM pool
 
 ```bash
-ssh root@107.161.168.192
-nano /usr/local/apps/php82/etc/php-fpm.d/tech5g.conf
+ssh root@143.246.136.110
+nano /etc/php-fpm-tech5g/pool.d/tech5g.conf
 ```
+
+> **Njia hii SIYO ya kubahatisha.** Pool haiko tena ndani ya
+> `/usr/local/apps/php82/etc/php-fpm.d/`. Webuzo hu-regenerate
+> `/usr/local/apps/php82/etc/php-fpm.conf` kila usiku saa 00:00 na kufuta mstari wa
+> `include=`, jambo lililozima tovuti kwa saa 5+ tarehe 2026-08-08. Sasa app ina
+> service yake binafsi (`php-fpm-tech5g.service`) yenye config nje ya himaya ya
+> Webuzo. Usirudishe pool kwenye `php-fpm.d/`.
 
 Ongeza mistari hii ndani ya block ya pool (pamoja na `env[...]` zilizopo za DB na
 `MIKROTIK_ENC_KEY`):
@@ -57,7 +64,7 @@ env[DALIPAY_CALLBACK_SECRET] = "«callback secret kutoka Settings»"
 Kisha:
 
 ```bash
-systemctl restart php-fpm82
+systemctl restart php-fpm-tech5g
 ```
 
 Hifadhi nakala ya siri hizi kwenye `/root/.tech5g-credentials` (chmod 600), sehemu
@@ -99,7 +106,7 @@ anayejua URL angeweza kutuma "collection.success" ya uongo na kujipa vocha bure.
 
 ## 4. IP whitelist (hiari lakini inashauriwa)
 
-Dalipay → **API keys** → IP whitelisting: ongeza `107.161.168.192` (IP ya VPS).
+Dalipay → **API keys** → IP whitelisting: ongeza `143.246.136.110` (IP ya VPS).
 Ukifanya hivi, keys zako hazitafanya kazi zikiibiwa na kutumika mahali pengine.
 
 > Ukiweka whitelist, majaribio kutoka PC yako yataanza kukataliwa (403). Ongeza IP
@@ -151,7 +158,7 @@ mwenyewe kwenye router halisi. Angalia:
 
 | Dalili                                        | Sababu / Suluhisho                                                                                     |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Vocha zinatoka bila malipo                    | Mfumo uko MOCK — keys hazijafika PHP. Angalia §5(b) na `systemctl restart php-fpm82`.                  |
+| Vocha zinatoka bila malipo                    | Mfumo uko MOCK — keys hazijafika PHP. Angalia §5(b) na `systemctl restart php-fpm-tech5g`.             |
 | "Imeshindikana kuanzisha malipo"              | Angalia `admin_error_logs.php` — sababu halisi kutoka gateway imeandikwa hapo.                          |
 | Malipo yamekamilika lakini hakuna vocha       | Router ilikuwa chini. `malipo_status.php` → button **Kukamilisha** (haitumii pesa mpya).                |
 | Muamala umekwama 'pending' milele             | Webhook haikufika NA poll ilikatika. **Kukamilisha** inafuta `claimed_at` na kujaribu tena.             |

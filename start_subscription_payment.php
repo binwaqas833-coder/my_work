@@ -3,10 +3,10 @@
  * start_subscription_payment.php
  * -------------------------------------------------------------
  * Sawa na lipia.php lakini kwa MALIPO YA SUBSCRIPTION (siyo vocha ya
- * mteja). Inatengeneza rekodi ya 'pending_payment', inaiga USSD Push
- * (MOCK - AzamPay halisi itawekwa hapa baadaye, sawa na lipia.php),
- * kisha inaonyesha ukurasa wa "kusubiri malipo" unaopiga poll kwenye
- * check_subscription_status.php.
+ * mteja). Inatengeneza rekodi ya 'pending_payment', inaanzisha USSD Push
+ * kupitia gateway ya Dalipay (au kuiiga ikiwa PAYMENT_MOCK_MODE imewashwa
+ * kwa sababu hakuna keys), kisha inaonyesha ukurasa wa "kusubiri malipo"
+ * unaopiga poll kwenye check_subscription_status.php.
  * -------------------------------------------------------------
  */
 session_start();

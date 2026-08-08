@@ -41,7 +41,7 @@ define('MIKROTIK_ENC_KEY', getenv('MIKROTIK_ENC_KEY') ?: 'CHANGE_ME_dev_key_over
 
 // ── ISP Gateway ya Dalipay (malipo halisi ya mobile money) ──
 // SIRI HIZI HAZIANDIKWI HAPA KAMWE. Production huzipokea kama env[...]
-// ndani ya FPM pool (/usr/local/apps/php82/etc/php-fpm.d/tech5g.conf) —
+// ndani ya FPM pool (/etc/php-fpm-tech5g/pool.d/tech5g.conf) —
 // angalia DEPLOY_DALIPAY.md. Ukiziandika hapa zitaingia kwenye git.
 define('DALIPAY_BASE_URL', rtrim(getenv('DALIPAY_BASE_URL') ?: 'https://app.dalipay.co.tz/api/v1', '/'));
 define('DALIPAY_PUBLIC_KEY',      getenv('DALIPAY_PUBLIC_KEY')      ?: '');

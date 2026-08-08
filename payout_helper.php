@@ -132,6 +132,19 @@ function sendPayoutToGateway($conn, int $payout_id, int $admin_id): array
     // ── 4. Imeshindikana: tofautisha "imekataliwa" na "hatujui" ──
     $http = (int)($res['http'] ?? 0);
 
+    // 4a. Ombi HALIKUWAHI kuondoka kwenye seva yetu (ukaguzi wa hapa nyumbani
+    // umelizuia: mtandao wa simu hauruhusiwi, kiasi nje ya mipaka, n.k.).
+    // Tunajua KWA UHAKIKA hakuna malipo yaliyoanzishwa -> rudisha salio mara moja.
+    // Bila hii, ombi lilikwama 'awaiting_approval' na salio la reseller likashikiliwa
+    // milele, huku admin akiambiwa akague Dalipay kwa ombi ambalo hawakuwahi kulipokea.
+    if (($res['sent'] ?? true) === false) {
+        refundPayout($conn, $payout_id, 'failed', $res['error']);
+        logSystemError($conn, 'payout_helper.php', 'Disbursement imezuiwa kabla ya kutumwa: ' . $res['error'],
+            ['user_id' => (int)$po['user_id'], 'context' => ['payout_id' => $payout_id]]);
+        return ['ok' => false, 'status' => 'failed',
+                'message' => $res['error'] . ' (salio limerudishwa - hakuna ombi lililotumwa)'];
+    }
+
     if ($http >= 400 && $http < 500) {
         // Gateway imekataa kwa uhakika (mfano salio la merchant halitoshi,
         // namba si sahihi, KYC). Hakuna malipo yaliyoanzishwa -> rudisha salio.

@@ -21,9 +21,24 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'admin') {
     exit();
 }
 
+// ── CSRF TOKEN ──
+// Ukurasa huu unaidhinisha malipo, unafuta watumiaji na unapandisha watu kuwa
+// admin - vitendo vyenye madhara makubwa kuliko ukurasa mwingine wowote, lakini
+// haukuwa na ulinzi wa CSRF hata kidogo. Tovuti nyingine yoyote ambayo admin
+// ameifungua ingeweza kutuma POST hapa kwa cookie yake na kuidhinisha payout.
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
 // ── AJAX ACTIONS (POST) ──
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
     header('Content-Type: application/json');
+
+    if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], (string)$_POST['csrf_token'])) {
+        echo json_encode(['status' => 'error', 'msg' => 'Ombi hili si salama (CSRF). Refresh ukurasa ujaribu tena.']);
+        exit();
+    }
+
     $action = $_POST['ajax_action'];
     $id     = intval($_POST['id'] ?? 0);
 
@@ -46,6 +61,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
         mysqli_query($conn, "DELETE FROM users WHERE id=$id");
         echo json_encode(['status'=>'success', 'msg'=>'Mtumiaji amefutwa.']);
     
+    // ── SUBSCRIPTION PLAN: TENGENEZA MPYA ──
+    // Awali admin angeweza KUHARIRI plans zilizopo tu, hakukuwa na njia yoyote
+    // ya kuunda plan mpya. Kwenye usakinishaji mpya jedwali la subscription_plans
+    // huwa TUPU, hivyo kila reseller alibaki kwenye trial (router 1 tu) na
+    // hakukuwa na plan yoyote ya ku-upgrade - ndiyo sababu hakuna aliyeweza
+    // kuongeza router ya pili au ya tatu.
+    } elseif ($action === 'add_plan') {
+        $plan_name   = trim($_POST['plan_name'] ?? '');
+        $price       = (float)($_POST['price'] ?? 0);
+        $max_routers = (int)($_POST['max_routers'] ?? 0);
+        $is_active   = isset($_POST['is_active']) && $_POST['is_active'] == '1' ? 1 : 0;
+
+        if ($plan_name === '' || $price <= 0 || $max_routers <= 0) {
+            echo json_encode(['status' => 'error', 'msg' => 'Jaza jina, bei (>0) na idadi ya routers (>0).']);
+            exit();
+        }
+        if (mb_strlen($plan_name) > 50) {
+            echo json_encode(['status' => 'error', 'msg' => 'Jina la plan ni refu kupita kiasi (herufi 50).']);
+            exit();
+        }
+
+        $dup = $conn->prepare("SELECT id FROM subscription_plans WHERE plan_name = ? LIMIT 1");
+        $dup->bind_param("s", $plan_name);
+        $dup->execute();
+        $exists = $dup->get_result()->num_rows > 0;
+        $dup->close();
+        if ($exists) {
+            echo json_encode(['status' => 'error', 'msg' => 'Plan yenye jina hilo tayari ipo.']);
+            exit();
+        }
+
+        $ins = $conn->prepare("INSERT INTO subscription_plans (plan_name, max_routers, price, is_active) VALUES (?, ?, ?, ?)");
+        $ins->bind_param("sidi", $plan_name, $max_routers, $price, $is_active);
+        if ($ins->execute()) {
+            echo json_encode(['status' => 'success', 'msg' => 'Plan mpya imetengenezwa! 🎉', 'id' => $ins->insert_id]);
+        } else {
+            echo json_encode(['status' => 'error', 'msg' => 'Imeshindikana kuhifadhi plan.']);
+        }
+        $ins->close();
+
     // ── SUBSCRIPTION PLAN UPDATE ──
     } elseif ($action === 'update_plan') {
         $price       = (float)($_POST['price'] ?? 0);
@@ -134,19 +189,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
             $p_user_id = (int)$p_data['user_id'];
             $p_amount  = (float)$p_data['amount'];
 
-            mysqli_begin_transaction($conn);
             try {
-                $stmt_rej = mysqli_prepare($conn, "UPDATE payout_requests SET status = 'rejected' WHERE id = ?");
-                mysqli_stmt_bind_param($stmt_rej, "i", $id);
-                mysqli_stmt_execute($stmt_rej);
-                mysqli_stmt_close($stmt_rej);
+                // Tumia refundPayout() ya payout_helper.php badala ya kurudisha
+                // salio kwa mkono hapa. Toleo la awali lilifanya
+                // "UPDATE ... SET status='rejected'" bila kuangalia tena hali
+                // wala kushika row (FOR UPDATE), hivyo mibofyo miwili ya haraka
+                // ilipitisha SELECT mara mbili na salio likaongezwa MARA MBILI.
+                // refundPayout() inashika row na kukataa ombi lililokwisha fika mwisho.
+                $refunded = refundPayout($conn, (int)$id, 'rejected', 'Imekataliwa na Admin.');
 
-                $stmt_ref = mysqli_prepare($conn, "UPDATE users SET balance = balance + ? WHERE id = ?");
-                mysqli_stmt_bind_param($stmt_ref, "di", $p_amount, $p_user_id);
-                mysqli_stmt_execute($stmt_ref);
-                mysqli_stmt_close($stmt_ref);
-
-                mysqli_commit($conn);
+                if (!$refunded) {
+                    echo json_encode(['status' => 'error', 'msg' => 'Ombi lilishachakatwa tayari.']);
+                    exit();
+                }
 
                 $email_sent = false;
                 if (!empty($p_data['email'])) {
@@ -167,9 +222,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
 
                 echo json_encode(['status' => 'success', 'msg' => $final_msg, 'email_sent' => $email_sent]);
             } catch (\Throwable $e) {
-                mysqli_rollback($conn);
+                // Hakuna rollback hapa: refundPayout() inasimamia transaction yake
+                // yenyewe (ikiwemo rollback). Barua pepe pekee ndiyo inayoweza
+                // kufeli baada ya salio kurudishwa - hiyo si sababu ya kurudisha nyuma.
                 error_log("payout_reject error kwa payout_id={$id}: " . $e->getMessage());
-                echo json_encode(['status'=>'error', 'msg'=>'Hitilafu wakati wa kuchakata ombi.']);
+                echo json_encode(['status'=>'error', 'msg'=>'Ombi limekataliwa lakini taarifa haikutumwa.']);
             }
         } else {
             echo json_encode(['status'=>'error', 'msg'=>'Ombi halijapatikana au lilishachakatwa.']);
@@ -406,7 +463,18 @@ tbody tr:hover{background:rgba(255,255,255,0.04)}
     <div class="panel">
         <div class="panel-title">
             <h3><i class="fa-solid fa-tags"></i> Bei za Subscription Plans</h3>
+            <button class="btn-nav" style="font-size:12px;padding:8px 14px;" onclick="funguaPlanMpya()">
+                <i class="fa-solid fa-plus"></i> Plan Mpya
+            </button>
         </div>
+        <?php if (mysqli_num_rows($plans_result) === 0): ?>
+            <p style="color:var(--text-dim);font-size:13px;padding:14px 0;">
+                <i class="fa-solid fa-circle-info"></i>
+                Hakuna plan yoyote bado. Bila plan, kila reseller anabaki kwenye trial
+                (router <b>1</b> tu) na hawezi kuongeza router ya pili. Bonyeza
+                <b>Plan Mpya</b> hapo juu kuanza.
+            </p>
+        <?php endif; ?>
         <div class="plans-cards-grid">
             <?php while ($plan = mysqli_fetch_assoc($plans_result)): ?>
             <div class="plan-mini-card" id="plan-card-<?php echo (int)$plan['id']; ?>">
@@ -660,6 +728,10 @@ tbody tr:hover{background:rgba(255,255,255,0.04)}
         <div class="modal-icon">🏷️</div>
         <h3 id="planModalTitle" style="margin-bottom:16px;">Hariri Plan</h3>
         <input type="hidden" id="planEditId">
+        <div class="plan-edit-field" id="planNameField" style="display:none;">
+            <label>Jina la Plan (mfano: Kati)</label>
+            <input type="text" id="planEditName" maxlength="50" placeholder="Mfano: Kati">
+        </div>
         <div class="plan-edit-field">
             <label>Bei (Tsh/mwaka)</label>
             <input type="number" id="planEditPrice" min="1" step="1">
@@ -695,6 +767,9 @@ tbody tr:hover{background:rgba(255,255,255,0.04)}
 </div>
 
 <script>
+// Token ya CSRF - kila POST ya ajax_action kwenye ukurasa huu lazima iibebe.
+const CSRF_TOKEN = <?php echo json_encode($_SESSION['csrf_token']); ?>;
+
 function showToast(msg, type) {
     type = type || 'info';
     const c = document.getElementById('toastContainer');
@@ -716,9 +791,22 @@ function searchTable() {
 function funguaHaririPlan(id, jina, price, maxRouters, isActive) {
     document.getElementById('planModalTitle').textContent = 'Hariri: ' + jina;
     document.getElementById('planEditId').value = id;
+    document.getElementById('planNameField').style.display = 'none';
     document.getElementById('planEditPrice').value = price;
     document.getElementById('planEditRouters').value = maxRouters;
     document.getElementById('planEditActive').checked = (isActive == 1);
+    document.getElementById('planModal').classList.add('active');
+}
+
+// Plan mpya: modal ile ile, lakini bila id na ikionyesha uwanja wa jina.
+function funguaPlanMpya() {
+    document.getElementById('planModalTitle').textContent = 'Tengeneza Plan Mpya';
+    document.getElementById('planEditId').value = '';
+    document.getElementById('planNameField').style.display = '';
+    document.getElementById('planEditName').value = '';
+    document.getElementById('planEditPrice').value = '';
+    document.getElementById('planEditRouters').value = '';
+    document.getElementById('planEditActive').checked = true;
     document.getElementById('planModal').classList.add('active');
 }
 
@@ -728,14 +816,36 @@ function fungaPlanModal() {
 
 function hifadhiPlan() {
     const id         = document.getElementById('planEditId').value;
+    const jina       = document.getElementById('planEditName').value.trim();
     const price      = document.getElementById('planEditPrice').value;
     const maxRouters = document.getElementById('planEditRouters').value;
     const isActive   = document.getElementById('planEditActive').checked ? '1' : '0';
+    const niMpya     = (id === '');
+
+    if (niMpya && jina === '') {
+        showToast('Weka jina la plan.', 'error');
+        return;
+    }
+    if (!(price > 0) || !(maxRouters > 0)) {
+        showToast('Bei na idadi ya routers lazima ziwe zaidi ya 0.', 'error');
+        return;
+    }
+
+    const body = (niMpya
+        ? 'ajax_action=add_plan&plan_name=' + encodeURIComponent(jina)
+          + '&price=' + encodeURIComponent(price)
+          + '&max_routers=' + encodeURIComponent(maxRouters)
+          + '&is_active=' + isActive
+        : 'ajax_action=update_plan&id=' + encodeURIComponent(id)
+          + '&price=' + encodeURIComponent(price)
+          + '&max_routers=' + encodeURIComponent(maxRouters)
+          + '&is_active=' + isActive)
+        + '&csrf_token=' + CSRF_TOKEN;
 
     fetch('admin.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'ajax_action=update_plan&id=' + id + '&price=' + price + '&max_routers=' + maxRouters + '&is_active=' + isActive
+        body: body
     })
     .then(r => r.json())
     .then(data => {
@@ -794,7 +904,7 @@ function tekelezaAction() {
     fetch('admin.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'ajax_action=' + action + '&id=' + id
+        body: 'ajax_action=' + action + '&id=' + id + '&csrf_token=' + CSRF_TOKEN
     })
     .then(r => r.json())
     .then(data => {

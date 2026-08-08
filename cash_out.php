@@ -9,6 +9,12 @@
 session_start();
 include 'auth_check.php';
 include 'login_signup.php';
+require_once 'dalipay_client.php'; // dalipayProviderFromPhone() - kuthibitisha namba MAPEMA
+
+// Kikomo cha chini cha ombi moja. Kilikuwa kwenye HTML (min="1000") pekee,
+// hivyo ombi lililotengenezwa kwa mkono lingeweza kupita likiwa TSh 1.
+define('MIN_PAYOUT', 1000);
+define('MAX_PAYOUT', 5000000); // kikomo cha gateway (Dalipay)
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: index.php");
@@ -32,8 +38,18 @@ $stmt_user->execute();
 $reseller = $stmt_user->get_result()->fetch_assoc();
 $stmt_user->close();
 
-$user_phone    = $reseller['phone'] ?? 'Haujaweka namba';
+// MUHIMU: tenganisha thamani HALISI na maandishi ya kuonyesha. Awali zote mbili
+// zilikuwa kitu kimoja, hivyo reseller asiye na namba alihifadhiwa maneno
+// 'Haujaweka namba' kwenye payout_requests.phone_number - na maneno hayo ndiyo
+// yaliyotumwa Dalipay kama namba ya mpokeaji.
+$user_phone    = trim((string)($reseller['phone'] ?? ''));
+$phone_display = $user_phone !== '' ? $user_phone : 'Haujaweka namba';
 $total_balance = (float)($reseller['balance'] ?? 0);
+
+// Namba lazima iwe ya mtandao unaokubaliwa na gateway. Tunakagua HAPA ili
+// reseller ajue mara moja, badala ya ombi kushikilia salio lake kisha likwame
+// wakati admin anaidhinisha.
+$phone_provider = $user_phone !== '' ? dalipayProviderFromPhone($user_phone) : null;
 
 // 2. Kuchakata Ombi la Cash Out
 $toast = null;
@@ -49,18 +65,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_cashout'])) {
 
     if ($amount <= 0) {
         $toast = ['type' => 'error', 'msg' => 'Tafadhali weka kiasi sahihi cha fedha. ⚠️'];
-    } elseif ($amount > 5000000) {
+    } elseif ($amount < MIN_PAYOUT) {
+        $toast = ['type' => 'error', 'msg' => 'Kiasi cha chini kwa ombi moja ni TSh ' . number_format(MIN_PAYOUT) . '. ⚠️'];
+    } elseif ($amount > MAX_PAYOUT) {
         // Kikomo cha gateway yenyewe (Dalipay: 1 - 5,000,000). Tunakikagua HAPA
         // ili reseller ajue mara moja, badala ya ombi kushikilia salio lake
         // kisha likataliwe wakati admin anaidhinisha.
-        $toast = ['type' => 'error', 'msg' => 'Kiasi cha juu kwa ombi moja ni TSh 5,000,000. Gawa ombi lako. ⚠️'];
+        $toast = ['type' => 'error', 'msg' => 'Kiasi cha juu kwa ombi moja ni TSh ' . number_format(MAX_PAYOUT) . '. Gawa ombi lako. ⚠️'];
+    } elseif ($user_phone === '') {
+        $toast = ['type' => 'error', 'msg' => 'Huna namba ya simu kwenye akaunti yako. Iweke kwenye Mipangilio kabla ya kuomba cash out. 🚫'];
+    } elseif ($phone_provider === null) {
+        $toast = ['type' => 'error', 'msg' => 'Namba yako (' . htmlspecialchars($user_phone) . ') si ya mtandao unaopokea malipo. Tumia Vodacom, Tigo/Yas, Airtel au Halotel. 🚫'];
     } elseif ($amount > $total_balance) {
         $toast = ['type' => 'error', 'msg' => "Huwezi kutoa kiasi kinachozidi salio lako la sasa (TSh " . number_format($total_balance, 2) . "). 🚫"];
     } else {
         $conn->begin_transaction();
 
         try {
-            // A. Hifadhi ombi kwenye payout_requests
+            // A. Punguza salio KWANZA, kwa masharti (atomic).
+            // Sharti la 'balance >= ?' ndilo linalozuia maombi mawili yanayokuja
+            // kwa pamoja (bofya-mara-mbili, au tabo mbili) kupita ukaguzi wa juu
+            // yote mawili na kuacha salio HASI. Ukaguzi wa juu unasoma salio la
+            // KABLA ya transaction, hivyo peke yake hautoshi.
+            $stmt_deduct = $conn->prepare("UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?");
+            if (!$stmt_deduct) {
+                throw new Exception("Error kwenye kubadilisha balance: " . $conn->error);
+            }
+            $stmt_deduct->bind_param("did", $amount, $user_id, $amount);
+            $stmt_deduct->execute();
+            $deducted = ($stmt_deduct->affected_rows === 1);
+            $stmt_deduct->close();
+
+            if (!$deducted) {
+                throw new Exception('Salio halikutosha wakati ombi linachakatwa.');
+            }
+
+            // B. Hifadhi ombi kwenye payout_requests
             $stmt_req = $conn->prepare("INSERT INTO payout_requests (user_id, phone_number, amount, status) VALUES (?, ?, ?, 'pending')");
             if (!$stmt_req) {
                 throw new Exception("Error kwenye payout_requests: " . $conn->error);
@@ -69,23 +109,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_cashout'])) {
             $stmt_req->execute();
             $stmt_req->close();
 
-            // B. Punguza salio kutoka table ya users
-            $stmt_deduct = $conn->prepare("UPDATE users SET balance = balance - ? WHERE id = ?");
-            if (!$stmt_deduct) {
-                throw new Exception("Error kwenye kubadilisha balance: " . $conn->error);
-            }
-            $stmt_deduct->bind_param("di", $amount, $user_id);
-            $stmt_deduct->execute();
-            $stmt_deduct->close();
-
             $conn->commit();
 
             $total_balance -= $amount;
             $toast = ['type' => 'success', 'msg' => "Ombi lako la Cash Out la TSh " . number_format($amount, 2) . " limepelekwa kwa Admin kikamilifu! ✅"];
 
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $conn->rollback();
-            $toast = ['type' => 'error', 'msg' => 'Hitilafu imetokea. Tafadhali jaribu tena. ❌'];
+            error_log('cash_out.php: ' . $e->getMessage());
+            $toast = ['type' => 'error', 'msg' => 'Hitilafu imetokea, ombi halikupokelewa. Salio lako halijaguswa. Jaribu tena. ❌'];
         }
     }
 }
@@ -413,10 +445,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_cashout'])) {
             <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
 
             <label>Namba ya Simu ya Kupokelea (Registration Phone)</label>
-            <input type="text" value="<?php echo htmlspecialchars($user_phone); ?>" readonly>
+            <input type="text" value="<?php echo htmlspecialchars($phone_display); ?>" readonly>
+            <?php if ($user_phone === '' || $phone_provider === null): ?>
+                <p style="font-size:12px;color:var(--red);margin:-10px 0 16px;">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    <?php echo $user_phone === ''
+                        ? 'Huna namba ya simu. Iweke kwenye Mipangilio kabla ya kuomba cash out.'
+                        : 'Mtandao wa namba hii haupokei malipo. Tumia Vodacom, Tigo/Yas, Airtel au Halotel.'; ?>
+                </p>
+            <?php endif; ?>
 
             <label>Kiwango Unachotaka Kutoa (TSh)</label>
-            <input type="number" name="amount" min="1000" max="<?php echo (float)$total_balance; ?>" step="any" placeholder="Mfano: 5000" required>
+            <input type="number" name="amount" min="<?php echo MIN_PAYOUT; ?>" max="<?php echo (float)$total_balance; ?>" step="any" placeholder="Mfano: 5000" required>
 
             <button type="submit" name="request_cashout" class="btn-submit">
                 <i class="fa-solid fa-paper-plane"></i> Thibitisha na Tuma Ombi

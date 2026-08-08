@@ -77,12 +77,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_r
     $mikrotik_ip  = trim($_POST['mikrotik_ip'] ?? '');
     $api_user     = trim($_POST['api_user'] ?? '');
     $api_pass     = $_POST['api_pass'] ?? '';
-    $api_port     = (int) ($_POST['api_port'] ?? 8728);
+    // Uwanja wa port ni hiari. (int)'' ni 0, na awali sifuri hiyo ilihifadhiwa
+    // DB-ni kama api_port=0; ilifanya kazi kwa bahati tu kwa sababu
+    // getMikrotikConnection() ina `?: 8728`. Tunairekebisha hapa mara moja.
+    $api_port     = (int) ($_POST['api_port'] ?? 0);
+    if ($api_port <= 0 || $api_port > 65535) {
+        $api_port = 8728;
+    }
+
+    // Je, tayari ana router yenye IP+port hii? Bila ukaguzi huu kifaa kimoja
+    // kingeweza kuwa na rows mbili, na takwimu za "kila router" zingegawanyika
+    // kati yao - merchant asijue router ipi ina wateja gani.
+    $dup_stmt = $conn->prepare(
+        "SELECT router_label FROM mikrotik_configs WHERE user_id=? AND mikrotik_ip=? AND api_port=? LIMIT 1"
+    );
+    $dup_stmt->bind_param("isi", $user_id, $mikrotik_ip, $api_port);
+    $dup_stmt->execute();
+    $dup_row = $dup_stmt->get_result()->fetch_assoc();
+    $dup_stmt->close();
 
     if ($router_label === '' || $mikrotik_ip === '' || $api_user === '' || $api_pass === '') {
         $toast = ['type' => 'error', 'msg' => 'Jaza taarifa zote: Jina la Router, IP, API User, na API Password. ⚠️'];
     } elseif ($router_count >= $max_routers) {
         $toast = ['type' => 'error', 'msg' => "Umefikia kikomo cha routers ({$max_routers}) kwa mpango wako wa sasa. Fanya upgrade ya plan ili kuongeza zaidi. 🚫"];
+    } elseif ($dup_row) {
+        $toast = ['type' => 'error', 'msg' => 'Router yenye IP hii tayari ipo kwenye orodha yako ("' . htmlspecialchars($dup_row['router_label']) . '"). 🚫'];
     } else {
         $API = new RouterosAPI();
         $API->debug   = false;
@@ -150,6 +169,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'switc
 }
 
 $active_router_id = $_SESSION['active_router_id'] ?? ($current_routers[0]['router_id'] ?? null);
+
+// ── TAKWIMU ZA KILA ROUTER ──
+// Kila router ina wateja/vocha zake, lakini awali orodha hii ilionyesha jina
+// na IP pekee - ili kujua router ipi ina wateja gani ilibidi uingie ndani ya
+// kila moja, mmoja baada ya mwingine. Query MOJA yenye GROUP BY inatosha
+// (siyo query kwa kila router).
+$router_stats = [];
+$rs_stmt = $conn->prepare(
+    "SELECT router_id,
+            COUNT(*)                                          AS jumla,
+            SUM(status = 'used')                              AS zilizotumika,
+            SUM(status = 'unused')                            AS hazijatumika,
+            SUM(CASE WHEN type = 'paid' AND DATE(created_at) = CURDATE()
+                     THEN price ELSE 0 END)                   AS mapato_leo
+       FROM vouchers
+      WHERE user_id = ?
+   GROUP BY router_id"
+);
+$rs_stmt->bind_param("i", $user_id);
+$rs_stmt->execute();
+foreach ($rs_stmt->get_result()->fetch_all(MYSQLI_ASSOC) as $srow) {
+    $router_stats[(int)$srow['router_id']] = $srow;
+}
+$rs_stmt->close();
 ?>
 <!DOCTYPE html>
 <html lang="sw">
@@ -356,6 +399,16 @@ $active_router_id = $_SESSION['active_router_id'] ?? ($current_routers[0]['route
         font-family:'Space Mono',monospace;
         margin-top:4px;
     }
+    .r-stats{
+        display:flex;
+        flex-wrap:wrap;
+        gap:14px;
+        margin-top:10px;
+        font-size:12px;
+        color:var(--text-dim);
+    }
+    .r-stats i{ margin-right:5px; color:var(--accent2); }
+    .r-stats b{ color:var(--text); font-weight:600; }
     .btn{
         padding:10px 18px;
         border-radius:8px;
@@ -515,6 +568,7 @@ $active_router_id = $_SESSION['active_router_id'] ?? ($current_routers[0]['route
         <p style="color:var(--text-dim); text-align:center; padding:30px;">Bado hujaongeza router yoyote.</p>
     <?php else: foreach ($current_routers as $r):
         $is_active = ((int)$r['router_id'] === (int)$active_router_id);
+        $st        = $router_stats[(int)$r['router_id']] ?? null;
     ?>
         <div class="card <?php echo $is_active ? 'active' : ''; ?>">
             <div>
@@ -524,6 +578,20 @@ $active_router_id = $_SESSION['active_router_id'] ?? ($current_routers[0]['route
                     <?php if ($is_active): ?><span class="tag">ACTIVE</span><?php endif; ?>
                 </div>
                 <div class="r-ip"><?php echo htmlspecialchars($r['mikrotik_ip']); ?>:<?php echo (int)$r['api_port']; ?></div>
+                <div class="r-stats">
+                    <span title="Wateja waliotumia vocha za router hii">
+                        <i class="fa-solid fa-users"></i>
+                        <b><?php echo (int)($st['zilizotumika'] ?? 0); ?></b> wateja
+                    </span>
+                    <span title="Vocha zilizobaki (hazijatumika)">
+                        <i class="fa-solid fa-ticket"></i>
+                        <b><?php echo (int)($st['hazijatumika'] ?? 0); ?></b> zimebaki
+                    </span>
+                    <span title="Mapato ya leo kwenye router hii">
+                        <i class="fa-solid fa-coins"></i>
+                        <b>TSh <?php echo number_format((float)($st['mapato_leo'] ?? 0)); ?></b> leo
+                    </span>
+                </div>
             </div>
             <?php if (!$is_active): ?>
             <form method="POST" style="margin:0;">

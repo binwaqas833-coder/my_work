@@ -2,8 +2,10 @@
 /**
  * lipia.php
  * -------------------------------------------------------------
- * Inapokea fomu kutoka index_backup.php, inaanzisha malipo (kwa sasa MOCK
- * ya AzamPay), na kuhifadhi rekodi ya "pending" kwenye payment_transactions.
+ * Inapokea fomu kutoka index_backup.php, inaanzisha malipo kupitia gateway ya
+ * Dalipay, na kuhifadhi rekodi ya "pending" kwenye payment_transactions.
+ * (Bila keys za Dalipay mfumo hurudi MOCK - angalia PAYMENT_MOCK_MODE
+ * kwenye config.php. AzamPay HAITUMIKI hapa; ni jina la zamani tu.)
  *
  * MUHIMU (MULTI-ROUTER): sasa inapokea router_id pia (siyo user_id peke
  * yake) - tariff HALISI (chanzo cha ukweli) inatafutwa kwa router_id,
