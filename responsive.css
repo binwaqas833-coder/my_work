@@ -1,0 +1,192 @@
+/* ==========================================================================
+   responsive.css — marekebisho ya pamoja ya skrini ndogo
+   --------------------------------------------------------------------------
+   Kila ukurasa una <style> yake ya ndani. Faili hii HAIANDIKI UPYA muundo wao;
+   inarekebisha tu matatizo yanayojirudia kwenye simu:
+     1. Jedwali (tables) zinazopita upana wa skrini
+     2. Grid zenye idadi ya safu iliyofungwa (repeat(3,1fr) n.k.)
+     3. Padding kubwa mno kwenye skrini ndogo
+     4. Vitufe/fomu vinavyokuwa vidogo mno kuguswa kwa kidole
+   Inapakiwa BAADA ya <style> ya ukurasa, hivyo inaweza kuzishinda pale
+   inapohitajika (media queries pekee - haigusi muonekano wa kompyuta).
+   ========================================================================== */
+
+/* Zuia kabisa ukurasa kutembea kushoto/kulia */
+html, body {
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+/* Picha na video zisipite upana wa skrini */
+img, svg, video, canvas {
+    max-width: 100%;
+    height: auto;
+}
+
+/* Maneno marefu (URL, namba za muamala) yasivunje muundo */
+.r-ip, .toast-msg, td, .mono, code {
+    overflow-wrap: anywhere;
+}
+
+/* --------------------------------------------------------------------------
+   JEDWALI — kubwa zaidi ya matatizo yote kwenye simu.
+   Jedwali nyingi zina min-width kubwa; tunazifunga ndani ya "scroll" yao
+   wenyewe badala ya kuruhusu ukurasa mzima utembee kando.
+   -------------------------------------------------------------------------- */
+.table-wrap,
+.jedwali-wrap,
+.table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 768px) {
+    /* Jedwali lolote lisilo ndani ya wrapper - lipe scroll yake */
+    table {
+        display: block;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        white-space: nowrap;
+    }
+    /* Jedwali lililo ndani ya wrapper tayari - liachwe kama lilivyo,
+       wrapper ndiyo inashughulikia scroll (usiweke display:block mara mbili) */
+    .table-wrap > table,
+    .jedwali-wrap > table,
+    .table-responsive > table {
+        display: table;
+        white-space: normal;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   GRID — safu zilizofungwa (repeat(3,1fr) n.k.) hazipungui zenyewe.
+   -------------------------------------------------------------------------- */
+@media (max-width: 900px) {
+    .stats-grid,
+    .plans-cards-grid,
+    .cards-grid,
+    .grid-3,
+    .grid-4,
+    .grid-5 {
+        grid-template-columns: repeat(2, 1fr) !important;
+    }
+}
+
+@media (max-width: 560px) {
+    .stats-grid,
+    .plans-cards-grid,
+    .cards-grid,
+    .grid-2,
+    .grid-3,
+    .grid-4,
+    .grid-5 {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   NAFASI (padding/margin) — punguza kwenye skrini ndogo ili maudhui yapate nafasi
+   -------------------------------------------------------------------------- */
+@media (max-width: 560px) {
+    body {
+        padding-left: 12px !important;
+        padding-right: 12px !important;
+    }
+    .wrap,
+    .container,
+    .panel,
+    .card,
+    .form-card,
+    .header-card,
+    .bal-card {
+        padding-left: 14px !important;
+        padding-right: 14px !important;
+    }
+    .panel,
+    .card {
+        border-radius: 12px !important;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   VICHWA (headers) vyenye vitu viwili pande mbili - vipangwe chini kwa chini
+   -------------------------------------------------------------------------- */
+@media (max-width: 620px) {
+    .header-card,
+    .panel-title {
+        flex-direction: column;
+        align-items: flex-start !important;
+        gap: 12px !important;
+    }
+    .top-actions {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+    .top-actions > a,
+    .top-actions > button {
+        flex: 1 1 auto;
+        justify-content: center;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   KUGUSA KWA KIDOLE — vitufe/viungo viwe angalau 44px (mwongozo wa WCAG/Apple),
+   na fonti ya input isipungue 16px (chini ya hapo iOS hu-"zoom" fomu yenyewe).
+   -------------------------------------------------------------------------- */
+@media (max-width: 768px) {
+    button,
+    .btn,
+    input[type="submit"],
+    input[type="button"] {
+        min-height: 44px;
+    }
+    input[type="text"],
+    input[type="email"],
+    input[type="tel"],
+    input[type="number"],
+    input[type="password"],
+    select,
+    textarea {
+        font-size: 16px !important;
+        min-height: 44px;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   FOMU zilizo ndani ya safu mbili - ziwe safu moja
+   -------------------------------------------------------------------------- */
+@media (max-width: 560px) {
+    .form-row,
+    .row-2,
+    .two-col {
+        display: block !important;
+    }
+    .form-row > *,
+    .row-2 > *,
+    .two-col > * {
+        width: 100% !important;
+        margin-bottom: 12px;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   MODAL — isipite skrini, na iweze ku-scroll ikiwa ndefu
+   -------------------------------------------------------------------------- */
+@media (max-width: 560px) {
+    .modal-content {
+        width: calc(100% - 24px) !important;
+        max-width: none !important;
+        max-height: 88vh;
+        overflow-y: auto;
+        padding: 20px !important;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   Skrini fupi (simu iliyolala) - anza juu ili fomu ndefu zisikatwe
+   -------------------------------------------------------------------------- */
+@media (max-height: 560px) and (orientation: landscape) {
+    body {
+        align-items: flex-start !important;
+    }
+}

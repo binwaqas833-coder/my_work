@@ -10,7 +10,10 @@ if (isset($_SESSION['user_id'])) {
 <html lang="sw">
 <head>
     <meta charset="UTF-8">
-    <title>Login System</title>
+    <!-- MUHIMU: bila hii, simu hurendisha ukurasa kwa upana wa kompyuta
+         kisha kuupunguza (zoom out) - maandishi yanaonekana madogo sana. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ingia - Tech 5G Wi-Fi</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
@@ -102,6 +105,7 @@ input::-webkit-credentials-auto-fill-button {
             body { align-items: flex-start; }
         }
          </style>
+<link rel="stylesheet" href="responsive.css">
 </head>
 <body>
 

@@ -156,6 +156,7 @@ if (isset($_GET['pakua']) && array_key_exists($_GET['pakua'], $faili_zinazoruhus
   .onyo{background:rgba(255,138,138,0.1);border:1px solid rgba(255,138,138,0.3);color:#ff8a8a;padding:14px 16px;border-radius:10px;font-size:12.5px;margin-top:24px;}
   .footer{text-align:center;padding:22px 0 4px;font-size:11px;color:rgba(255,255,255,0.35);font-family:'Space Mono',monospace;}
 </style>
+<link rel="stylesheet" href="responsive.css">
 </head>
 <body>
 

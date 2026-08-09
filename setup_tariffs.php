@@ -149,6 +149,7 @@ body::before{content:'';position:fixed;inset:0;background:rgba(0,0,0,0.45);z-ind
     .actions{flex-direction:column}
 }
 </style>
+<link rel="stylesheet" href="responsive.css">
 </head>
 <body>
 

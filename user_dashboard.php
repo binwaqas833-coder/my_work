@@ -1938,6 +1938,7 @@ function vmPrintSelected(){
     .vm-print-card .pc-wifi{font-size:10px;color:#999;}
     @media print{ @page{ margin:10mm; } }
 </style>
+<link rel="stylesheet" href="responsive.css">
 </head>
 <body>
     <div class="vm-print-grid">${cards}</div>

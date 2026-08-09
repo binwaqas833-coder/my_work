@@ -413,6 +413,7 @@ $stmt->close();
         th,td{ padding:10px 12px; }
     }
 </style>
+<link rel="stylesheet" href="responsive.css">
 </head>
 <body>
 

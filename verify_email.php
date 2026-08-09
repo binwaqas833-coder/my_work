@@ -145,6 +145,7 @@ $email_iliyofichwa = (function (string $e): string {
     .foot{margin-top:20px; font-size:11.5px; color:rgba(255,255,255,0.42); line-height:1.6;}
     .foot a{color:var(--text-dim);}
 </style>
+<link rel="stylesheet" href="responsive.css">
 </head>
 <body>
 <div class="card">

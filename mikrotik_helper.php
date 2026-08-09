@@ -121,6 +121,77 @@ function countUserRouters($user_id, $conn): int
 }
 
 /**
+ * Washa/zima "Jaribu Dakika 5 Bure" KWENYE ROUTER yenyewe.
+ *
+ * MUHIMU: kuficha kitufe kwenye ukurasa HAKUTOSHI. MikroTik hutoa trial
+ * yenyewe kwa mtu yeyote anayefungua <link-login>?username=T-<MAC>, hivyo
+ * mteja anayejua mbinu angeweza kuipata hata kitufe kikiwa kimefichwa.
+ * Ulinzi wa kweli ni kuondoa "trial" kwenye `login-by` ya hotspot profile.
+ *
+ * Inarudisha true ikiwa router imebadilishwa; false ikiwa haikufikiwa
+ * (mabadiliko ya database HAYATENGUKI - tunahifadhi nia ya merchant, na
+ * ukurasa bado utaficha kitufe).
+ */
+function setRouterTrial($API, bool $enabled): bool
+{
+    if (!$API) {
+        return false;
+    }
+    $profiles = $API->comm('/ip/hotspot/profile/print');
+    if (empty($profiles) || !is_array($profiles)) {
+        return false;
+    }
+
+    $ok = false;
+    foreach ($profiles as $p) {
+        if (!isset($p['.id'], $p['login-by'])) {
+            continue;
+        }
+        $njia = array_filter(array_map('trim', explode(',', (string)$p['login-by'])));
+        $ina  = in_array('trial', $njia, true);
+
+        if ($enabled && !$ina) {
+            $njia[] = 'trial';
+        } elseif (!$enabled && $ina) {
+            $njia = array_diff($njia, ['trial']);
+        } else {
+            $ok = true;   // tayari iko kama inavyotakiwa
+            continue;
+        }
+
+        // MikroTik inakataa login-by tupu - hakikisha angalau http-chap ipo
+        if (empty($njia)) {
+            $njia = ['http-chap'];
+        }
+
+        $res = $API->comm('/ip/hotspot/profile/set', [
+            '.id'      => $p['.id'],
+            'login-by' => implode(',', $njia),
+        ]);
+        $ok = ($res !== false);
+    }
+    return $ok;
+}
+
+/**
+ * Je, router hii inaruhusu trial ya dakika 5? (kutoka database)
+ * Chaguo-msingi ni TRUE ikiwa column haipo bado (migration haijaendeshwa).
+ */
+function routerTrialEnabled($router_id, $conn): bool
+{
+    $router_id = (int) $router_id;
+    $stmt = $conn->prepare("SELECT trial_enabled FROM mikrotik_configs WHERE router_id = ? LIMIT 1");
+    if (!$stmt) {
+        return true;
+    }
+    $stmt->bind_param("i", $router_id);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    return $row === null ? true : ((int)$row['trial_enabled'] === 1);
+}
+
+/**
  * Pata orodha ya routers zote za reseller huyu (kwa ukurasa wa
  * "My Mikrotiks") - bila API password (haihitajiki kwenye orodha).
  */
@@ -128,7 +199,7 @@ function getUserRouters($user_id, $conn): array
 {
     $user_id = (int) $user_id;
     $stmt = $conn->prepare(
-        "SELECT router_id, router_label, mikrotik_ip, api_user, api_port, created_at
+        "SELECT router_id, router_label, mikrotik_ip, api_user, api_port, trial_enabled, created_at
          FROM mikrotik_configs WHERE user_id = ? ORDER BY router_id ASC"
     );
     $stmt->bind_param("i", $user_id);

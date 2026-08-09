@@ -125,6 +125,7 @@ $res = mysqli_query($conn, $q);
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Orodha ya Vocha</title>
+<link rel="stylesheet" href="responsive.css">
 </head>
 <body>
 <div class="container-fluid py-4">

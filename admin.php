@@ -438,6 +438,7 @@ tbody tr:hover{background:rgba(255,255,255,0.04)}
 /* ── FOOTER ── */
 .footer{text-align:center;padding:22px;font-size:11px;color:rgba(255,255,255,0.35);font-family:'Space Mono',monospace}
 </style>
+<link rel="stylesheet" href="responsive.css">
 </head>
 <body>
 

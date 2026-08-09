@@ -354,6 +354,7 @@ $sources = $conn->query("SELECT DISTINCT source FROM error_logs ORDER BY source 
         margin-top:auto;
     }
 </style>
+<link rel="stylesheet" href="responsive.css">
 </head>
 <body>
 

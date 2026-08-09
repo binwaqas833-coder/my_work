@@ -242,6 +242,7 @@ tbody tr:last-child td{border-bottom:none}
 }
 @media(max-width:480px){.stats-row{grid-template-columns:1fr}}
 </style>
+<link rel="stylesheet" href="responsive.css">
 </head>
 <body>
 

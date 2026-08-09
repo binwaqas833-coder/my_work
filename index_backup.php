@@ -418,6 +418,7 @@ if (isset($conn)) {
             .logo-slide img { height: 26px; margin: 0 15px; }
         }
     </style>
+<link rel="stylesheet" href="responsive.css">
 </head>
 <body>
 
@@ -518,7 +519,8 @@ if (isset($conn)) {
             </form>
         </div>
 
-        <!-- MPANGO WA 5: TRIAL -->
+        <!-- MPANGO WA 5: TRIAL (huonekana tu ikiwa merchant ameiwasha) -->
+        <?php if (!empty($router_id) && routerTrialEnabled($router_id, $conn)): ?>
         <div class="sehemu-trial">
             <p class="kichwa-sehemu" style="margin-top:0;" data-translate="jaribu_kichwa">Mteja Mpya? Jaribu Bure</p>
             <form action="trial_handler.php" method="POST">
@@ -527,6 +529,7 @@ if (isset($conn)) {
                 <button type="submit" class="btn-trial" data-translate="jaribu_btn">Jaribu Dakika 5 Bure</button>
             </form>
         </div>
+        <?php endif; ?>
     </div>
 
     <div class="footer-sehemu">

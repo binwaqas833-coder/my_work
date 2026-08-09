@@ -50,6 +50,7 @@ $plans = $conn->query("SELECT * FROM subscription_plans WHERE is_active=1 ORDER 
     .btn{padding:11px;border-radius:8px;border:none;font-weight:700;font-size:13.5px;cursor:pointer;width:100%;background:var(--accent);color:#04231a;}
     @media (max-width:760px){.plans-grid{grid-template-columns:1fr;}}
 </style>
+<link rel="stylesheet" href="responsive.css">
 </head>
 <body>
 <div class="wrap">

@@ -168,6 +168,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'switc
     }
 }
 
+// ── (3) WASHA/ZIMA "JARIBU DAKIKA 5 BURE" KWA ROUTER FULANI ──
+// Tunabadilisha pande MBILI:
+//   (a) database  - ndiyo inayoamua kama kitufe kinaonekana kwenye portal
+//   (b) router     - tunaondoa/kurudisha "trial" kwenye login-by, kwa sababu
+//       MikroTik hutoa trial kwa mtu yeyote anayefungua
+//       <link-login>?username=T-<MAC>, hata kitufe kikiwa kimefichwa.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'toggle_trial') {
+    $target_id = (int) ($_POST['router_id'] ?? 0);
+    $washa     = (($_POST['trial_enabled'] ?? '') === '1');
+
+    if (!routerBelongsToUser($target_id, $user_id, $conn)) {
+        logSystemError($conn, 'my_mikrotiks.php', "Jaribio la kubadilisha trial ya router_id={$target_id} isiyo mali yake.", ['user_id' => $user_id]);
+        $toast = ['type' => 'error', 'msg' => 'Router hiyo si mali yako.'];
+    } else {
+        $upd = $conn->prepare("UPDATE mikrotik_configs SET trial_enabled = ? WHERE router_id = ? AND user_id = ?");
+        $t_val = $washa ? 1 : 0;
+        $upd->bind_param("iii", $t_val, $target_id, $user_id);
+        $upd->execute();
+        $upd->close();
+
+        // Jaribu kubadilisha router yenyewe (best-effort)
+        $API = getMikrotikConnection($target_id, $user_id, $conn);
+        $router_ok = false;
+        if ($API) {
+            $router_ok = setRouterTrial($API, $washa);
+            $API->disconnect();
+        }
+
+        if ($router_ok) {
+            $toast = ['type' => 'success', 'msg' => $washa
+                ? 'Jaribio la dakika 5 limewashwa kwa router hii. ✅'
+                : 'Jaribio la dakika 5 limezimwa kwa router hii. ✅'];
+        } else {
+            $toast = ['type' => 'error', 'msg' => ($washa ? 'Imewashwa' : 'Imezimwa')
+                . ' kwenye mfumo, LAKINI router haikufikiwa - kitufe kimefichwa, '
+                . 'ila router bado inaruhusu trial mpaka iunganishwe. Kagua muunganisho kisha jaribu tena. ⚠️'];
+            logSystemError($conn, 'my_mikrotiks.php', 'setRouterTrial imeshindikana (router haikufikiwa).',
+                ['user_id' => $user_id, 'router_id' => $target_id]);
+        }
+        // Onyesha upya orodha ikiwa na thamani mpya
+        $current_routers = getUserRouters($user_id, $conn);
+    }
+}
+
 $active_router_id = $_SESSION['active_router_id'] ?? ($current_routers[0]['router_id'] ?? null);
 
 // ── TAKWIMU ZA KILA ROUTER ──
@@ -409,6 +453,35 @@ $rs_stmt->close();
     }
     .r-stats i{ margin-right:5px; color:var(--accent2); }
     .r-stats b{ color:var(--text); font-weight:600; }
+    .trial-toggle{
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:12px;
+        flex-wrap:wrap;
+        margin-top:12px;
+        padding-top:10px;
+        border-top:1px dashed rgba(255,255,255,0.14);
+        font-size:12px;
+        color:var(--text-dim);
+    }
+    .trial-label i{ color:var(--accent3); margin-right:4px; }
+    .trial-label b.on{ color:var(--accent); }
+    .trial-label b.off{ color:var(--text-muted); }
+    .trial-btn{
+        padding:6px 14px;
+        border-radius:7px;
+        font-size:12px;
+        font-weight:700;
+        cursor:pointer;
+        border:1px solid transparent;
+        background:rgba(255,255,255,0.10);
+        color:var(--text);
+        transition:filter .2s;
+    }
+    .trial-btn.on{ background:var(--accent); color:#04231a; }
+    .trial-btn.off{ background:rgba(255,61,87,0.16); border-color:rgba(255,61,87,0.35); color:var(--red); }
+    .trial-btn:hover{ filter:brightness(1.12); }
     .btn{
         padding:10px 18px;
         border-radius:8px;
@@ -532,6 +605,7 @@ $rs_stmt->close();
         margin-top:auto;
     }
 </style>
+<link rel="stylesheet" href="responsive.css">
 </head>
 <body>
 
@@ -592,6 +666,22 @@ $rs_stmt->close();
                         <b>TSh <?php echo number_format((float)($st['mapato_leo'] ?? 0)); ?></b> leo
                     </span>
                 </div>
+
+                <?php $trial_on = ((int)($r['trial_enabled'] ?? 1) === 1); ?>
+                <form method="POST" class="trial-toggle">
+                    <input type="hidden" name="action" value="toggle_trial">
+                    <input type="hidden" name="router_id" value="<?php echo (int)$r['router_id']; ?>">
+                    <input type="hidden" name="trial_enabled" value="<?php echo $trial_on ? '0' : '1'; ?>">
+                    <span class="trial-label">
+                        <i class="fa-solid fa-gift"></i> Jaribio la dakika 5 bure:
+                        <b class="<?php echo $trial_on ? 'on' : 'off'; ?>">
+                            <?php echo $trial_on ? 'IMEWASHWA' : 'IMEZIMWA'; ?>
+                        </b>
+                    </span>
+                    <button type="submit" class="trial-btn <?php echo $trial_on ? 'off' : 'on'; ?>">
+                        <?php echo $trial_on ? 'Zima' : 'Washa'; ?>
+                    </button>
+                </form>
             </div>
             <?php if (!$is_active): ?>
             <form method="POST" style="margin:0;">

@@ -1,5 +1,7 @@
 <?php
 session_start();
+include __DIR__ . '/login_signup.php';      // $conn
+require_once __DIR__ . '/mikrotik_helper.php'; // routerTrialEnabled()
 
 // 1. Kagua kama taarifa muhimu za Hotspot zipo kwenye Session
 $client_mac   = $_SESSION['client_mac'] ?? '';
@@ -15,6 +17,14 @@ $client_link_orig = $_SESSION['client_link_orig'] ?? '';
 // 2. Kama session imepotea, mrudishe kwenye index na uwasishe Toast ya Kosa
 if (empty($client_mac) || empty($link_login) || empty($router_id)) {
     header("Location: index_backup.php?error=" . urlencode("Hitilafu: Mtandao haujatambuliwa vizuri. Tafadhali zima Wi-Fi na uwasishe tena kisha jaribu upya."));
+    exit();
+}
+
+// 2b. JE MERCHANT AMERUHUSU TRIAL KWA ROUTER HII?
+// Kuficha kitufe kwenye index_backup.php HAKUTOSHI - mtu anaweza kutuma POST
+// moja kwa moja hapa. Huu ndio ukaguzi wa kweli upande wa seva.
+if (!routerTrialEnabled((int)$router_id, $conn)) {
+    header("Location: index_backup.php?error=" . urlencode("Samahani, jaribio la bure halipatikani kwenye mtandao huu. Tafadhali chagua kifurushi."));
     exit();
 }
 

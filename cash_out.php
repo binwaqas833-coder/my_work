@@ -407,6 +407,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_cashout'])) {
         margin-top:auto;
     }
 </style>
+<link rel="stylesheet" href="responsive.css">
 </head>
 <body>
 
