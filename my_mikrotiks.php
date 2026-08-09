@@ -226,7 +226,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'omba_
     $out  = [];
     $code = 0;
     // escapeshellarg + (int) - hoja pekee inayopita ni namba
-    exec('sudo -n /usr/local/sbin/tech5g-provision-peer ' . escapeshellarg((string)$user_id) . ' 2>&1', $out, $code);
+    // Mode pekee inayoruhusiwa kutoka kwa mtumiaji ni '--regenerate'.
+    // Hatupitishi maandishi ya mtumiaji moja kwa moja - tunachagua kati ya
+    // thamani MBILI zinazojulikana, hivyo hakuna njia ya kudunga chochote.
+    $mode = (($_POST['mode'] ?? '') === 'regenerate') ? '--regenerate' : 'new';
+    exec('sudo -n /usr/local/sbin/tech5g-provision-peer ' . escapeshellarg((string)$user_id) . ' ' . escapeshellarg($mode) . ' 2>&1', $out, $code);
     $raw  = trim(implode("\n", $out));
     $json = json_decode($raw, true);
 
@@ -723,10 +727,36 @@ add chain=input in-interface=wg-tech5g action=accept comment="Tech5G VPN trusted
         </div>
     <?php elseif ($tunnel_yangu): ?>
         <div class="vpn-box">
-            <i class="fa-solid fa-circle-check" style="color:var(--accent)"></i>
-            Una tunnel: <b><?php echo htmlspecialchars($tunnel_yangu['tunnel_ip']); ?></b>
-            (tangu <?php echo date('d M Y', strtotime($tunnel_yangu['created_at'])); ?>).
-            Itumie kama <b>Tunnel IP</b> unapoongeza router.
+            <h3><i class="fa-solid fa-circle-check" style="color:var(--accent)"></i> Una tunnel tayari</h3>
+            <p>
+                Anwani yako: <b style="font-family:'Space Mono',monospace;color:var(--accent);"><?php echo htmlspecialchars($tunnel_yangu['tunnel_ip']); ?></b>
+                &nbsp;·&nbsp; tangu <?php echo date('d M Y', strtotime($tunnel_yangu['created_at'])); ?>.
+                Itumie kama <b>Tunnel IP</b> unapoongeza router hapa chini.
+            </p>
+            <details style="margin-top:10px;">
+                <summary style="cursor:pointer;color:var(--accent2);font-weight:600;">
+                    Umepoteza funguo ya siri (private key)?
+                </summary>
+                <p style="margin-top:10px;">
+                    Funguo huonyeshwa mara moja tu na haihifadhiwi popote. Ukiipoteza,
+                    tunaweza kukutengenezea <b>mpya</b> — anwani yako
+                    (<?php echo htmlspecialchars($tunnel_yangu['tunnel_ip']); ?>) <u>haitabadilika</u>,
+                    hivyo hutalazimika kubadilisha chochote kwenye dashboard.
+                </p>
+                <p class="vpn-warn">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    Ukibonyeza, funguo ya sasa <b>itaacha kufanya kazi mara moja</b> na router
+                    yako itakatika mpaka ubandike maagizo mapya kwenye MikroTik.
+                </p>
+                <form method="POST" style="margin:0;"
+                      onsubmit="return confirm('Router yako itakatika mpaka ubandike funguo mpya. Endelea?');">
+                    <input type="hidden" name="action" value="omba_tunnel">
+                    <input type="hidden" name="mode" value="regenerate">
+                    <button type="submit" class="btn btn-outline">
+                        <i class="fa-solid fa-rotate"></i> Nipe funguo mpya
+                    </button>
+                </form>
+            </details>
         </div>
     <?php else: ?>
         <div class="vpn-box">

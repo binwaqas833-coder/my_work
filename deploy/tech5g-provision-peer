@@ -41,6 +41,10 @@ UID_IN="${1:-}"
 USER_ID=$((10#$UID_IN))
 [ "$USER_ID" -gt 0 ] || jibu_kosa "user_id si sahihi"
 
+# Hoja ya pili (hiari) LAZIMA iwe hii moja tu - hakuna nyingine inayokubalika
+MODE="${2:-new}"
+[ "$MODE" = "new" ] || [ "$MODE" = "--regenerate" ] || jibu_kosa "mode si sahihi"
+
 [ -f "$CREDS" ] || jibu_kosa "credentials hazipatikani"
 # shellcheck disable=SC1090
 set -a; . "$CREDS"; set +a
@@ -57,8 +61,58 @@ flock -w 10 9 || jibu_kosa "mfumo una shughuli nyingine - jaribu tena"
 
 # ── 3. Je tayari ana peer? ──
 EXIST="$(mysql_q "SELECT tunnel_ip FROM wg_peers WHERE user_id=${USER_ID} AND revoked_at IS NULL LIMIT 1")"
-if [ -n "$EXIST" ]; then
-    printf '{"ok":false,"already":true,"tunnel_ip":"%s","error":"Tayari una tunnel. Private key huonyeshwa MARA MOJA tu; ukiipoteza omba mpya (ya zamani itafutwa)."}\n' "$EXIST"
+
+if [ -n "$EXIST" ] && [ "$MODE" != "--regenerate" ]; then
+    printf '{"ok":false,"already":true,"tunnel_ip":"%s","error":"Tayari una tunnel."}\n' "$EXIST"
+    exit 0
+fi
+
+if [ "$MODE" = "--regenerate" ]; then
+    [ -n "$EXIST" ] || jibu_kosa "huna tunnel ya kubadilisha - omba mpya"
+
+    # Tunabaki na anwani ILE ILE kwa makusudi: router yake tayari imesajiliwa
+    # kwenye dashboard kwa IP hiyo. Kubadilisha IP kungemlazimu asasishe
+    # kila mahali. Tunabadilisha FUNGUO pekee.
+    TUNNEL_IP="$EXIST"
+    PRIV="$(wg genkey)"
+    PUB="$(printf '%s' "$PRIV" | wg pubkey)"
+    SRV_PUB="$(cat "${WG_DIR}/tech5g_server.pub")"
+
+    cp -a "$WG_CONF" "${WG_CONF}.bak-$(date +%Y%m%d-%H%M%S)"
+
+    # Ondoa block ya peer ya zamani (inayotambulika kwa AllowedIPs yake),
+    # kisha ongeza mpya. Tunatumia python kwa uhakika wa kuchanganua.
+    python3 - "$WG_CONF" "$TUNNEL_IP" <<'PY'
+import re, sys
+path, ip = sys.argv[1], sys.argv[2]
+txt = open(path).read()
+# Gawa kwenye block; block ya peer huanza kwa [Peer] (pamoja na comment yake ya juu)
+out, buf, dropped = [], [], False
+blocks = re.split(r'(?=\n(?:#[^\n]*\n)?\[Peer\])', txt)
+for b in blocks:
+    if re.search(r'AllowedIPs\s*=\s*' + re.escape(ip) + r'/32', b):
+        dropped = True
+        continue
+    out.append(b)
+open(path, 'w').write(''.join(out))
+print("dropped" if dropped else "notfound", file=sys.stderr)
+PY
+
+    {
+      printf '\n# ---- reseller user_id=%s (regenerated %s) ----\n' "$USER_ID" "$(date -u +%FT%TZ)"
+      printf '[Peer]\nPublicKey  = %s\nAllowedIPs = %s/32\n' "$PUB" "$TUNNEL_IP"
+    } >> "$WG_CONF"
+
+    if ! wg syncconf "$WG_IF" <(wg-quick strip "$WG_IF") 2>/dev/null; then
+        jibu_kosa "imeshindikana kutekeleza WireGuard"
+    fi
+
+    ESC_PUB="$(printf '%s' "$PUB" | sed "s/'/''/g")"
+    mysql_q "UPDATE wg_peers SET public_key='${ESC_PUB}', created_at=NOW()
+              WHERE user_id=${USER_ID} AND revoked_at IS NULL" >/dev/null
+
+    printf '{"ok":true,"regenerated":true,"tunnel_ip":"%s","private_key":"%s","server_pubkey":"%s","endpoint":"%s","port":"%s"}\n' \
+        "$TUNNEL_IP" "$PRIV" "$SRV_PUB" "$VPS_IP" "$WG_PORT"
     exit 0
 fi
 

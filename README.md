@@ -36,3 +36,20 @@ Full per-router runbook: docs/ONBOARD_ROUTER.md
       │ tunnel 10.10.0.11│ 10.10.0.12    │
       │ LAN 192.168.x │  │ LAN 192.168.x │
       └───────────────┘  └───────────────┘
+
+Request a tunnel (1 min)
+Dashboard → My Mikrotiks → ⚡ Niandalie Tunnel. They get a tunnel IP (e.g. 10.60.0.5) and ready-made MikroTik commands.
+
+2. Paste into MikroTik terminal (2 min)
+   One block sets up WireGuard, the address, the peer, firewall, and the API user. They must replace WEKA-PASSWORD-YAKO-IMARA with a real password. Verify with /ping 10.60.0.1.
+
+3. Add the router in the dashboard (2 min)
+   Tunnel IP + tech5g_api + their password. The system live-tests before saving — if it fails, nothing is stored. That's a guard, not a bug.
+
+4. Set prices (2 min)
+   Daily / Weekly / Monthly. This writes daily_profile, weekly_profile, monthly_profile.
+
+5. Upload the portal pages (3 min)
+   Download login.html + status.html from MikroTik Setup (pre-stamped with their router ID) → drop into hotspot/ via WinBox, or use /tool fetch.
+
+6. Test — connect a phone, portal should appear with their prices.
