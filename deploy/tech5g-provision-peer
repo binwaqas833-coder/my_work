@@ -1,0 +1,101 @@
+#!/bin/bash
+# =====================================================================
+# tech5g-provision-peer <user_id>
+# ---------------------------------------------------------------------
+# Inaongeza peer mpya ya WireGuard kwa reseller, kisha inachapisha JSON.
+#
+# HII NDIYO SEHEMU PEKEE inayoendeshwa kama root kwa niaba ya web app.
+# Kwa hiyo imeandikwa kwa mashaka: haiamini CHOCHOTE kinachotoka kwa PHP.
+#
+#   - Inapokea HOJA MOJA tu: user_id (namba). Hakuna jina la faili, hakuna
+#     octet, hakuna key - PHP haiwezi kuchagua chochote kati ya hivyo.
+#   - Inathibitisha yenyewe kwenye database kuwa mtumiaji yupo, ni reseller
+#     aliyeidhinishwa. PHP ikidukuliwa, bado haiwezi kutengeneza peer kwa
+#     mtu asiyekuwepo.
+#   - Inatumia flock ili maombi mawili yanayokuja kwa pamoja yasichukue
+#     octet ile ile.
+#   - Ina kikomo cha jumla ya peers (kuzuia mtu kujaza subnet).
+#
+# Usakinishaji:
+#   install -o root -g root -m 750 tech5g-provision-peer /usr/local/sbin/
+#   /etc/sudoers.d/tech5g-wg  ->  tech5g ALL=(root) NOPASSWD: /usr/local/sbin/tech5g-provision-peer
+# =====================================================================
+set -euo pipefail
+umask 077
+
+WG_IF="wg1"
+WG_CONF="/etc/wireguard/${WG_IF}.conf"
+WG_DIR="/etc/wireguard"
+SUBNET="10.60.0"
+VPS_IP="143.246.136.110"
+WG_PORT="51821"
+MAX_PEERS=200
+LOCK="/var/lock/tech5g-wg.lock"
+CREDS="/root/.tech5g-credentials"
+
+jibu_kosa() { printf '{"ok":false,"error":%s}\n' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/^/"/; s/$/"/')"; exit 1; }
+
+# ── 1. Hoja LAZIMA iwe namba safi ──
+UID_IN="${1:-}"
+[[ "$UID_IN" =~ ^[0-9]{1,9}$ ]] || jibu_kosa "user_id si sahihi"
+USER_ID=$((10#$UID_IN))
+[ "$USER_ID" -gt 0 ] || jibu_kosa "user_id si sahihi"
+
+[ -f "$CREDS" ] || jibu_kosa "credentials hazipatikani"
+# shellcheck disable=SC1090
+set -a; . "$CREDS"; set +a
+
+mysql_q() { mysql -h"${DB_HOST}" -u"${DB_USER}" -p"${DB_PASS}" "${DB_NAME}" -N -B -e "$1" 2>/dev/null; }
+
+# ── 2. Thibitisha mtumiaji KWENYE DATABASE (siyo kumwamini PHP) ──
+ROW="$(mysql_q "SELECT status FROM users WHERE id=${USER_ID} LIMIT 1")"
+[ -n "$ROW" ] || jibu_kosa "mtumiaji hayupo"
+[ "$ROW" = "approved" ] || jibu_kosa "akaunti bado haijaidhinishwa na admin"
+
+exec 9>"$LOCK"
+flock -w 10 9 || jibu_kosa "mfumo una shughuli nyingine - jaribu tena"
+
+# ── 3. Je tayari ana peer? ──
+EXIST="$(mysql_q "SELECT tunnel_ip FROM wg_peers WHERE user_id=${USER_ID} AND revoked_at IS NULL LIMIT 1")"
+if [ -n "$EXIST" ]; then
+    printf '{"ok":false,"already":true,"tunnel_ip":"%s","error":"Tayari una tunnel. Private key huonyeshwa MARA MOJA tu; ukiipoteza omba mpya (ya zamani itafutwa)."}\n' "$EXIST"
+    exit 0
+fi
+
+# ── 4. Chagua octet inayofuata iliyo wazi ──
+COUNT="$(grep -cE '^\[Peer\]' "$WG_CONF" || true)"
+[ "${COUNT:-0}" -lt "$MAX_PEERS" ] || jibu_kosa "kikomo cha peers kimefikiwa"
+
+OCTET=""
+for i in $(seq 2 254); do
+    if ! grep -qE "AllowedIPs\s*=\s*${SUBNET}\.${i}/32" "$WG_CONF" 2>/dev/null \
+       && [ -z "$(mysql_q "SELECT 1 FROM wg_peers WHERE tunnel_ip='${SUBNET}.${i}' AND revoked_at IS NULL LIMIT 1")" ]; then
+        OCTET="$i"; break
+    fi
+done
+[ -n "$OCTET" ] || jibu_kosa "hakuna anwani iliyobaki kwenye subnet"
+
+TUNNEL_IP="${SUBNET}.${OCTET}"
+
+# ── 5. Tengeneza funguo ──
+PRIV="$(wg genkey)"
+PUB="$(printf '%s' "$PRIV" | wg pubkey)"
+SRV_PUB="$(cat "${WG_DIR}/tech5g_server.pub")"
+
+# ── 6. Andika peer, kisha tekeleza LIVE bila kuvunja zilizopo ──
+cp -a "$WG_CONF" "${WG_CONF}.bak-$(date +%Y%m%d-%H%M%S)"
+{
+  printf '\n# ---- reseller user_id=%s (self-service %s) ----\n' "$USER_ID" "$(date -u +%FT%TZ)"
+  printf '[Peer]\nPublicKey  = %s\nAllowedIPs = %s/32\n' "$PUB" "$TUNNEL_IP"
+} >> "$WG_CONF"
+
+if ! wg syncconf "$WG_IF" <(wg-quick strip "$WG_IF") 2>/dev/null; then
+    jibu_kosa "imeshindikana kutekeleza WireGuard"
+fi
+
+# ── 7. Hifadhi (public key TU - private KAMWE haihifadhiwi) ──
+ESC_PUB="$(printf '%s' "$PUB" | sed "s/'/''/g")"
+mysql_q "INSERT INTO wg_peers (user_id, tunnel_ip, public_key) VALUES (${USER_ID}, '${TUNNEL_IP}', '${ESC_PUB}')" >/dev/null
+
+printf '{"ok":true,"tunnel_ip":"%s","private_key":"%s","server_pubkey":"%s","endpoint":"%s","port":"%s"}\n' \
+    "$TUNNEL_IP" "$PRIV" "$SRV_PUB" "$VPS_IP" "$WG_PORT"

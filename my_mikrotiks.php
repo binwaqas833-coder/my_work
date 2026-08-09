@@ -212,6 +212,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'toggl
     }
 }
 
+// ── (4) JIOMBEE TUNNEL YA VPN (self-service) ──
+// Awali hatua hii ilihitaji admin mwenye SSH ya root aendeshe
+// /root/add-tech5g-router.sh. Sasa reseller anajiombea mwenyewe.
+//
+// USALAMA: PHP HAIANDIKI wg1.conf. Inaita script moja iliyoruhusiwa kupitia
+// sudo (/usr/local/sbin/tech5g-provision-peer) inayopokea user_id TU. Script
+// yenyewe ndiyo inayothibitisha kwenye database, kuchagua anwani, na kutunga
+// config - hivyo hata PHP ikidukuliwa haiwezi kuandika chochote inachotaka.
+$vpn_config = null;   // huonyeshwa MARA MOJA tu baada ya kuomba
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'omba_tunnel') {
+
+    $out  = [];
+    $code = 0;
+    // escapeshellarg + (int) - hoja pekee inayopita ni namba
+    exec('sudo -n /usr/local/sbin/tech5g-provision-peer ' . escapeshellarg((string)$user_id) . ' 2>&1', $out, $code);
+    $raw  = trim(implode("\n", $out));
+    $json = json_decode($raw, true);
+
+    if (!is_array($json)) {
+        logSystemError($conn, 'my_mikrotiks.php', 'provision-peer haikurudisha JSON: ' . mb_substr($raw, 0, 300), ['user_id' => $user_id]);
+        $toast = ['type' => 'error', 'msg' => 'Imeshindikana kuandaa tunnel. Wasiliana na msimamizi.'];
+    } elseif (!empty($json['ok'])) {
+        $vpn_config = $json;
+        $toast = ['type' => 'success', 'msg' => 'Tunnel yako iko tayari: ' . htmlspecialchars($json['tunnel_ip']) . ' ✅'];
+    } else {
+        $toast = ['type' => 'error', 'msg' => $json['error'] ?? 'Imeshindikana kuandaa tunnel.'];
+    }
+}
+
+// Je tayari ana tunnel? (kwa kuonyesha hali kwenye ukurasa)
+$tunnel_yangu = null;
+$tq = $conn->prepare("SELECT tunnel_ip, created_at FROM wg_peers WHERE user_id=? AND revoked_at IS NULL LIMIT 1");
+if ($tq) {
+    $tq->bind_param("i", $user_id);
+    $tq->execute();
+    $tunnel_yangu = $tq->get_result()->fetch_assoc() ?: null;
+    $tq->close();
+}
+
 $active_router_id = $_SESSION['active_router_id'] ?? ($current_routers[0]['router_id'] ?? null);
 
 // ── TAKWIMU ZA KILA ROUTER ──
@@ -479,6 +518,25 @@ $rs_stmt->close();
         color:var(--text);
         transition:filter .2s;
     }
+    .vpn-box{
+        background:var(--surface);
+        backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur);
+        border:1px solid var(--border2); border-radius:var(--radius);
+        padding:18px 20px; margin-bottom:18px; font-size:13.5px; color:var(--text-dim);
+    }
+    .vpn-box.new{ border-color:var(--accent); box-shadow:0 0 22px rgba(7,247,147,0.14); }
+    .vpn-box h3{ font-family:'Syne',sans-serif; font-size:16px; color:#fff; margin-bottom:8px; }
+    .vpn-box p{ margin:8px 0; line-height:1.55; }
+    .vpn-step{ color:var(--text); font-weight:600; }
+    .vpn-warn{
+        background:rgba(255,61,87,0.12); border:1px solid rgba(255,61,87,0.32);
+        color:#ffd7dd; border-radius:9px; padding:10px 12px;
+    }
+    .vpn-box pre{
+        background:rgba(0,0,0,0.42); border:1px solid var(--border2); border-radius:10px;
+        padding:14px; overflow-x:auto; font-family:'Space Mono',monospace;
+        font-size:11.5px; line-height:1.6; color:#d7ffe9; white-space:pre; margin:10px 0;
+    }
     .trial-btn.on{ background:var(--accent); color:#04231a; }
     .trial-btn.off{ background:rgba(255,61,87,0.16); border-color:rgba(255,61,87,0.35); color:var(--red); }
     .trial-btn:hover{ filter:brightness(1.12); }
@@ -631,6 +689,57 @@ $rs_stmt->close();
         <div class="toast-box <?php echo $toast['type']; ?>"><?php echo htmlspecialchars($toast['msg']); ?></div>
     <?php endif; ?>
 
+    <!-- ── HATUA YA 1: TUNNEL YA VPN ── -->
+    <?php if ($vpn_config): ?>
+        <div class="vpn-box new">
+            <h3><i class="fa-solid fa-shield-halved"></i> Tunnel yako iko tayari — <b><?php echo htmlspecialchars($vpn_config['tunnel_ip']); ?></b></h3>
+            <p class="vpn-warn">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                <b>Nakili SASA.</b> Funguo ya siri (private key) inaonyeshwa <u>mara moja tu</u> —
+                haihifadhiwi popote. Ukiondoka kwenye ukurasa huu itapotea.
+            </p>
+            <p class="vpn-step">1. Bandika hizi kwenye <b>MikroTik Terminal</b>:</p>
+<pre id="vpnCmd">/interface wireguard
+add name=wg-tech5g listen-port=<?php echo htmlspecialchars($vpn_config['port']); ?> private-key="<?php echo htmlspecialchars($vpn_config['private_key']); ?>"
+
+/ip address
+add address=<?php echo htmlspecialchars($vpn_config['tunnel_ip']); ?>/24 interface=wg-tech5g
+
+/interface wireguard peers
+add interface=wg-tech5g public-key="<?php echo htmlspecialchars($vpn_config['server_pubkey']); ?>" \
+    endpoint-address=<?php echo htmlspecialchars($vpn_config['endpoint']); ?> endpoint-port=<?php echo htmlspecialchars($vpn_config['port']); ?> \
+    allowed-address=10.60.0.0/24 persistent-keepalive=25s
+
+/ip firewall filter
+add chain=input in-interface=wg-tech5g action=accept comment="Tech5G VPN trusted" place-before=0
+
+/ip service enable api
+/user group add name=api-only policy=api,read,write,test,ftp,!local,!telnet,!ssh,!reboot,!password,!policy,!winbox,!web,!sniff,!sensitive,!romon
+/user add name=tech5g_api password="WEKA-PASSWORD-YAKO-IMARA" group=api-only</pre>
+            <button type="button" class="btn btn-primary" onclick="nakiliVpn()"><i class="fa-solid fa-copy"></i> Nakili</button>
+            <p class="vpn-step">2. Kisha ongeza router hapa chini ukitumia
+               IP <b><?php echo htmlspecialchars($vpn_config['tunnel_ip']); ?></b>, user <b>tech5g_api</b>,
+               na password uliyoiweka.</p>
+        </div>
+    <?php elseif ($tunnel_yangu): ?>
+        <div class="vpn-box">
+            <i class="fa-solid fa-circle-check" style="color:var(--accent)"></i>
+            Una tunnel: <b><?php echo htmlspecialchars($tunnel_yangu['tunnel_ip']); ?></b>
+            (tangu <?php echo date('d M Y', strtotime($tunnel_yangu['created_at'])); ?>).
+            Itumie kama <b>Tunnel IP</b> unapoongeza router.
+        </div>
+    <?php else: ?>
+        <div class="vpn-box">
+            <h3><i class="fa-solid fa-shield-halved"></i> Hatua ya 1 — Omba Tunnel ya VPN</h3>
+            <p>Router yako haina IP ya umma, hivyo inaunganishwa na mfumo kupitia tunnel salama.
+               Bonyeza hapa chini upate anwani yako na maagizo ya MikroTik.</p>
+            <form method="POST" style="margin:0;">
+                <input type="hidden" name="action" value="omba_tunnel">
+                <button type="submit" class="btn btn-primary"><i class="fa-solid fa-bolt"></i> Niandalie Tunnel</button>
+            </form>
+        </div>
+    <?php endif; ?>
+
     <div class="limit-note <?php echo $router_count >= $max_routers ? 'full' : ''; ?>">
         <i class="fa-solid fa-circle-info"></i> Una <b><?php echo $router_count; ?></b> kati ya <b><?php echo $max_routers; ?></b> routers zinazoruhusiwa na mpango wako wa sasa.
         <?php if ($router_count >= $max_routers): ?>
@@ -743,6 +852,21 @@ function thibitishaLogout() {
 }
 function fungaModal(id) {
     document.getElementById(id).classList.remove('active');
+}
+</script>
+
+<script>
+function nakiliVpn(){
+  var t = document.getElementById('vpnCmd');
+  if(!t) return;
+  navigator.clipboard.writeText(t.innerText).then(function(){
+    alert('Imenakiliwa. Bandika kwenye MikroTik Terminal.');
+  }, function(){
+    // Baadhi ya vivinjari vya simu huzuia clipboard - chagua maandishi badala yake
+    var r = document.createRange(); r.selectNodeContents(t);
+    var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    alert('Nakili maandishi yaliyochaguliwa (Ctrl/Cmd + C).');
+  });
 }
 </script>
 
