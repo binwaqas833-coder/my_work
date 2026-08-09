@@ -12,16 +12,18 @@ zikiwa tayari kwa kurudia kwa kila router mpya. Kila `«...»` badilisha na tham
 
 | Kipengele                    | Thamani                                        |
 | ---------------------------- | ---------------------------------------------- |
-| VPS public IP                | `107.161.168.192`                              |
+| VPS public IP                | `143.246.136.110`                              |
 | WireGuard interface (Tech5G) | `wg1`                                          |
 | WireGuard port               | `51821` (UDP)                                  |
 | Tunnel subnet                | `10.60.0.0/24`                                 |
 | VPS hub tunnel IP            | `10.60.0.1`                                    |
-| VPS server public key        | `hAnwIpw8hy8BWwZC5Pp+evtLUhaANc3ZZCIUcR9GNik=` |
+| VPS server public key        | `/+4EytOmXXXXZook7/+hGbqjMFSbSrMgrYgCuxyyKXQ=` |
 | Domain                       | `https://tech5g.co.tz`                         |
 
-**Tunnel IP zilizotumika:** `10.60.0.1` = hub · `10.60.0.2` = bin waqas (Router 1).
-**Router ijayo:** anza na `10.60.0.3`, kisha `.4`, `.5` … (kamwe usirudie namba).
+**Tunnel IP zilizotumika:** `10.60.0.1` = hub. **Hakuna peer nyingine kwa sasa** —
+uhamiaji wa 2026-08-07 ulikuwa mwanzo mpya, hivyo `wg1.conf` haina peer yoyote
+(`wg show wg1` inathibitisha). **Router ya kwanza mpya:** tumia `10.60.0.2`, kisha `.3`, `.4` …
+(kamwe usirudie namba). Thibitisha zilizopo kwa: `grep AllowedIPs /etc/wireguard/wg1.conf`
 
 Siri zote (DB, keys, admin) ziko kwenye VPS: `/root/.tech5g-credentials`.
 
@@ -32,7 +34,7 @@ Siri zote (DB, keys, admin) ziko kwenye VPS: `/root/.tech5g-credentials`.
 Kuna script tayari kwenye VPS inayofanya kila kitu cha upande wa VPS na kukupa commands za MikroTik:
 
 ```bash
-ssh root@107.161.168.192
+ssh root@143.246.136.110
 /root/add-tech5g-router.sh «jina» «octet»
 # mfano kwa reseller 'juma' kwenye 10.60.0.3:
 /root/add-tech5g-router.sh juma 3
@@ -79,8 +81,8 @@ add name=wg-tech5g listen-port=51821 private-key="«ROUTER_PRIVATE_KEY»"
 add address=10.60.0.«octet»/24 interface=wg-tech5g
 
 /interface wireguard peers
-add interface=wg-tech5g public-key="hAnwIpw8hy8BWwZC5Pp+evtLUhaANc3ZZCIUcR9GNik=" \
-    endpoint-address=107.161.168.192 endpoint-port=51821 \
+add interface=wg-tech5g public-key="/+4EytOmXXXXZook7/+hGbqjMFSbSrMgrYgCuxyyKXQ=" \
+    endpoint-address=143.246.136.110 endpoint-port=51821 \
     allowed-address=10.60.0.0/24 persistent-keepalive=25s
 
 /ip firewall filter
@@ -139,7 +141,7 @@ lakini mteja hataingia (profile haipo).
 add dst-host=tech5g.co.tz
 add dst-host=*.tech5g.co.tz
 /ip hotspot walled-garden ip
-add dst-address=107.161.168.192 comment="Tech5G backend"
+add dst-address=143.246.136.110 comment="Tech5G backend"
 ```
 
 **Thibitisha (au rekebisha) walled-garden ya router ZOTE kwa script moja** — hii hupitia kila router
@@ -147,13 +149,13 @@ iliyo kwenye `mikrotik_configs` kupitia API, inalinganisha na orodha rasmi (port
 WhatsApp, IP ya VPS) na kuongeza zinazokosekana tu:
 
 ```bash
-ssh root@107.161.168.192
+ssh root@143.246.136.110
 set -a; . /root/.tech5g-credentials; set +a
 /usr/local/emps/bin/php /var/www/tech5g/walled_garden_sync.php            # dry-run: onyesha zinazokosekana
 /usr/local/emps/bin/php /var/www/tech5g/walled_garden_sync.php --apply    # tekeleza
 ```
 
-> **MUHIMU:** entry ya `dst-address=107.161.168.192` (walled-garden **IP**) ndiyo inayoruhusu HTTPS
+> **MUHIMU:** entry ya `dst-address=143.246.136.110` (walled-garden **IP**) ndiyo inayoruhusu HTTPS
 > kufika portal. Kwa `dst-host` pekee, mteja ambaye hajalipa anaweza kuona ukurasa mtupu.
 
 ---

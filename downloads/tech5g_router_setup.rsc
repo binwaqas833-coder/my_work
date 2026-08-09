@@ -167,7 +167,7 @@ add dst-host=*.tech5g.co.tz
 # Nyongeza ya usalama: hata kama DNS ikichelewa kujibu, IP hii inaruhusiwa
 # moja kwa moja. Hii ndiyo IP ya umma ya tech5g.co.tz.
 /ip hotspot walled-garden ip
-add dst-address=107.161.168.192 comment="Tech5G PHP backend access"
+add dst-address=143.246.136.110 comment="Tech5G PHP backend access"
 
 # ---- 12. Hotspot User Profiles (lazima yalingane na ENUM package_type) ----
 /ip hotspot user profile

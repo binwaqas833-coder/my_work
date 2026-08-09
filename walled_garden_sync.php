@@ -48,8 +48,25 @@ $HOSTS = [
     'api.whatsapp.com'     => 'wa.me hu-redirect hapa',
 ];
 
+// ── IP ya seva yetu ──
+// MUHIMU: entry hii (walled-garden IP, siyo dst-host) ndiyo inayoruhusu HTTPS
+// kufika portal. Ikikosekana au ikiwa ya seva ILIYOKUFA, mteja ambaye hajalipa
+// huona ukurasa MTUPU.
+//
+// Tunaipata kutoka APP_BASE_URL badala ya kuiandika kwa mkono. Uhamiaji wa
+// 2026-08-07 uliacha IP ya zamani (107.161.168.192) hapa, na kila router
+// mpya ingeruhusu seva isiyokuwepo. Kuipata kutoka domain kunaondoa kabisa
+// aina hii ya hitilafu.
+$server_host = parse_url(APP_BASE_URL, PHP_URL_HOST) ?: 'tech5g.co.tz';
+$server_ip   = filter_var($server_host, FILTER_VALIDATE_IP) ? $server_host : gethostbyname($server_host);
+
+if (!filter_var($server_ip, FILTER_VALIDATE_IP)) {
+    fwrite(STDERR, "HITILAFU: imeshindikana kupata IP ya {$server_host}. Angalia DNS.\n");
+    exit(1);
+}
+
 $IPS = [
-    '107.161.168.192' => 'Tech5G backend (VPS)',
+    $server_ip => "Tech5G backend ({$server_host})",
 ];
 
 $apply  = in_array('--apply', $argv, true);
