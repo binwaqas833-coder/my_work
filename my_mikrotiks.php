@@ -230,7 +230,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'omba_
     // Hatupitishi maandishi ya mtumiaji moja kwa moja - tunachagua kati ya
     // thamani MBILI zinazojulikana, hivyo hakuna njia ya kudunga chochote.
     $mode = (($_POST['mode'] ?? '') === 'regenerate') ? '--regenerate' : 'new';
-    exec('sudo -n /usr/local/sbin/tech5g-provision-peer ' . escapeshellarg((string)$user_id) . ' ' . escapeshellarg($mode) . ' 2>&1', $out, $code);
+    $cmd  = 'sudo -n /usr/local/sbin/tech5g-provision-peer ' . escapeshellarg((string)$user_id) . ' ' . escapeshellarg($mode);
+    if ($mode === '--regenerate') {
+        // peer_id ni namba tu; script inathibitisha kuwa ni YAKE
+        $cmd .= ' ' . escapeshellarg((string)(int)($_POST['peer_id'] ?? 0));
+    }
+    exec($cmd . ' 2>&1', $out, $code);
     $raw  = trim(implode("\n", $out));
     $json = json_decode($raw, true);
 
@@ -245,15 +250,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'omba_
     }
 }
 
-// Je tayari ana tunnel? (kwa kuonyesha hali kwenye ukurasa)
-$tunnel_yangu = null;
-$tq = $conn->prepare("SELECT tunnel_ip, created_at FROM wg_peers WHERE user_id=? AND revoked_at IS NULL LIMIT 1");
+// Tunnel ZOTE alizonazo. Kila router ya kimwili inahitaji tunnel yake -
+// haziwezi kushirikiana funguo wala IP. Kwa hiyo reseller mwenye plan ya
+// routers 3 anahitaji tunnel 3.
+$tunnels_zangu = [];
+$tq = $conn->prepare("SELECT id, tunnel_ip, created_at FROM wg_peers WHERE user_id=? AND revoked_at IS NULL ORDER BY id");
 if ($tq) {
     $tq->bind_param("i", $user_id);
     $tq->execute();
-    $tunnel_yangu = $tq->get_result()->fetch_assoc() ?: null;
+    $tunnels_zangu = $tq->get_result()->fetch_all(MYSQLI_ASSOC);
     $tq->close();
 }
+$tunnel_count = count($tunnels_zangu);
+// Kikomo ni kile kile cha routers (script inakithibitisha upya upande wa root)
+$tunnel_ruhusa = $is_admin ? PHP_INT_MAX : (int)$max_routers;
 
 $active_router_id = $_SESSION['active_router_id'] ?? ($current_routers[0]['router_id'] ?? null);
 
@@ -541,6 +551,12 @@ $rs_stmt->close();
         padding:14px; overflow-x:auto; font-family:'Space Mono',monospace;
         font-size:11.5px; line-height:1.6; color:#d7ffe9; white-space:pre; margin:10px 0;
     }
+    .tunnel-row{
+        display:flex; align-items:center; justify-content:space-between;
+        gap:12px; flex-wrap:wrap;
+        padding:9px 0; border-bottom:1px dashed rgba(255,255,255,0.10);
+    }
+    .tunnel-row:last-of-type{ border-bottom:none; }
     .trial-btn.on{ background:var(--accent); color:#04231a; }
     .trial-btn.off{ background:rgba(255,61,87,0.16); border-color:rgba(255,61,87,0.35); color:var(--red); }
     .trial-btn:hover{ filter:brightness(1.12); }
@@ -725,38 +741,46 @@ add chain=input in-interface=wg-tech5g action=accept comment="Tech5G VPN trusted
                IP <b><?php echo htmlspecialchars($vpn_config['tunnel_ip']); ?></b>, user <b>tech5g_api</b>,
                na password uliyoiweka.</p>
         </div>
-    <?php elseif ($tunnel_yangu): ?>
+    <?php elseif ($tunnel_count > 0): ?>
         <div class="vpn-box">
-            <h3><i class="fa-solid fa-circle-check" style="color:var(--accent)"></i> Una tunnel tayari</h3>
-            <p>
-                Anwani yako: <b style="font-family:'Space Mono',monospace;color:var(--accent);"><?php echo htmlspecialchars($tunnel_yangu['tunnel_ip']); ?></b>
-                &nbsp;·&nbsp; tangu <?php echo date('d M Y', strtotime($tunnel_yangu['created_at'])); ?>.
-                Itumie kama <b>Tunnel IP</b> unapoongeza router hapa chini.
-            </p>
-            <details style="margin-top:10px;">
-                <summary style="cursor:pointer;color:var(--accent2);font-weight:600;">
-                    Umepoteza funguo ya siri (private key)?
-                </summary>
-                <p style="margin-top:10px;">
-                    Funguo huonyeshwa mara moja tu na haihifadhiwi popote. Ukiipoteza,
-                    tunaweza kukutengenezea <b>mpya</b> — anwani yako
-                    (<?php echo htmlspecialchars($tunnel_yangu['tunnel_ip']); ?>) <u>haitabadilika</u>,
-                    hivyo hutalazimika kubadilisha chochote kwenye dashboard.
-                </p>
-                <p class="vpn-warn">
-                    <i class="fa-solid fa-triangle-exclamation"></i>
-                    Ukibonyeza, funguo ya sasa <b>itaacha kufanya kazi mara moja</b> na router
-                    yako itakatika mpaka ubandike maagizo mapya kwenye MikroTik.
-                </p>
-                <form method="POST" style="margin:0;"
-                      onsubmit="return confirm('Router yako itakatika mpaka ubandike funguo mpya. Endelea?');">
+            <h3><i class="fa-solid fa-shield-halved"></i> Tunnel zako
+                <span style="font-weight:400;font-size:13px;color:var(--text-dim);">
+                    (<?php echo $tunnel_count; ?><?php echo $is_admin ? '' : ' kati ya ' . (int)$tunnel_ruhusa; ?>)
+                </span>
+            </h3>
+            <?php foreach ($tunnels_zangu as $i => $t): ?>
+                <div class="tunnel-row">
+                    <span>
+                        <b style="font-family:'Space Mono',monospace;color:var(--accent);"><?php echo htmlspecialchars($t['tunnel_ip']); ?></b>
+                        <span style="color:var(--text-muted);font-size:12px;">
+                            · tangu <?php echo date('d M Y', strtotime($t['created_at'])); ?>
+                        </span>
+                    </span>
+                    <form method="POST" style="margin:0;"
+                          onsubmit="return confirm('Router iliyo kwenye <?php echo htmlspecialchars($t['tunnel_ip']); ?> itakatika mpaka ubandike funguo mpya. Endelea?');">
+                        <input type="hidden" name="action" value="omba_tunnel">
+                        <input type="hidden" name="mode" value="regenerate">
+                        <input type="hidden" name="peer_id" value="<?php echo (int)$t['id']; ?>">
+                        <button type="submit" class="trial-btn" title="Umepoteza funguo ya siri? Pata mpya (IP haibadiliki)">
+                            <i class="fa-solid fa-rotate"></i> Funguo mpya
+                        </button>
+                    </form>
+                </div>
+            <?php endforeach; ?>
+
+            <?php if ($tunnel_count < $tunnel_ruhusa): ?>
+                <p style="margin-top:12px;">Unaongeza router nyingine? Kila router inahitaji tunnel yake.</p>
+                <form method="POST" style="margin:0;">
                     <input type="hidden" name="action" value="omba_tunnel">
-                    <input type="hidden" name="mode" value="regenerate">
-                    <button type="submit" class="btn btn-outline">
-                        <i class="fa-solid fa-rotate"></i> Nipe funguo mpya
-                    </button>
+                    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-plus"></i> Niandalie tunnel nyingine</button>
                 </form>
-            </details>
+            <?php else: ?>
+                <p style="margin-top:12px;color:var(--text-muted);">
+                    <i class="fa-solid fa-circle-info"></i>
+                    Umefikia kikomo cha mpango wako (<?php echo (int)$tunnel_ruhusa; ?>).
+                    <a href="subscribe.php" style="color:var(--accent2);">Fanya upgrade</a> ili kuongeza zaidi.
+                </p>
+            <?php endif; ?>
         </div>
     <?php else: ?>
         <div class="vpn-box">

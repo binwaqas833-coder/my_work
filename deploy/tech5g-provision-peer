@@ -1,24 +1,24 @@
 #!/bin/bash
 # =====================================================================
-# tech5g-provision-peer <user_id>
+# tech5g-provision-peer <user_id> [--regenerate <peer_id>]
 # ---------------------------------------------------------------------
-# Inaongeza peer mpya ya WireGuard kwa reseller, kisha inachapisha JSON.
+# Inatoa tunnel ya WireGuard kwa reseller, kisha inachapisha JSON.
 #
-# HII NDIYO SEHEMU PEKEE inayoendeshwa kama root kwa niaba ya web app.
-# Kwa hiyo imeandikwa kwa mashaka: haiamini CHOCHOTE kinachotoka kwa PHP.
+# HII NDIYO SEHEMU PEKEE inayoendeshwa kama root kwa niaba ya web app,
+# kwa hiyo haiamini CHOCHOTE kinachotoka kwa PHP:
+#   - Hoja zote zinakaguliwa kwa regex kali (namba pekee / mode moja tu).
+#   - Inathibitisha YENYEWE kwenye database: mtumiaji yupo, ameidhinishwa,
+#     na hajazidi kikomo cha routers cha mpango wake (subscription).
+#   - PHP haichagui octet, funguo, wala peer ya kubadilisha - script pekee.
+#   - flock inazuia maombi mawili kuchukua anwani ile ile.
 #
-#   - Inapokea HOJA MOJA tu: user_id (namba). Hakuna jina la faili, hakuna
-#     octet, hakuna key - PHP haiwezi kuchagua chochote kati ya hivyo.
-#   - Inathibitisha yenyewe kwenye database kuwa mtumiaji yupo, ni reseller
-#     aliyeidhinishwa. PHP ikidukuliwa, bado haiwezi kutengeneza peer kwa
-#     mtu asiyekuwepo.
-#   - Inatumia flock ili maombi mawili yanayokuja kwa pamoja yasichukue
-#     octet ile ile.
-#   - Ina kikomo cha jumla ya peers (kuzuia mtu kujaza subnet).
+# TUNNEL NYINGI KWA MTU MMOJA: kila router ya kimwili inahitaji tunnel yake
+# (funguo yake na IP yake) - haziwezi kushirikiana. Kwa hiyo kikomo hapa ni
+# max_routers ya mpango wake, siyo "moja kwa kila mtu".
 #
 # Usakinishaji:
 #   install -o root -g root -m 750 tech5g-provision-peer /usr/local/sbin/
-#   /etc/sudoers.d/tech5g-wg  ->  tech5g ALL=(root) NOPASSWD: /usr/local/sbin/tech5g-provision-peer
+#   /etc/sudoers.d/tech5g-wg -> tech5g ALL=(root) NOPASSWD: /usr/local/sbin/tech5g-provision-peer
 # =====================================================================
 set -euo pipefail
 umask 077
@@ -35,88 +35,112 @@ CREDS="/root/.tech5g-credentials"
 
 jibu_kosa() { printf '{"ok":false,"error":%s}\n' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/^/"/; s/$/"/')"; exit 1; }
 
-# ── 1. Hoja LAZIMA iwe namba safi ──
+# ── 1. Hoja ──
 UID_IN="${1:-}"
 [[ "$UID_IN" =~ ^[0-9]{1,9}$ ]] || jibu_kosa "user_id si sahihi"
 USER_ID=$((10#$UID_IN))
 [ "$USER_ID" -gt 0 ] || jibu_kosa "user_id si sahihi"
 
-# Hoja ya pili (hiari) LAZIMA iwe hii moja tu - hakuna nyingine inayokubalika
 MODE="${2:-new}"
-[ "$MODE" = "new" ] || [ "$MODE" = "--regenerate" ] || jibu_kosa "mode si sahihi"
+PEER_ID=0
+if [ "$MODE" = "--regenerate" ]; then
+    PID_IN="${3:-}"
+    [[ "$PID_IN" =~ ^[0-9]{1,9}$ ]] || jibu_kosa "peer_id si sahihi"
+    PEER_ID=$((10#$PID_IN))
+    [ "$PEER_ID" -gt 0 ] || jibu_kosa "peer_id si sahihi"
+elif [ "$MODE" != "new" ]; then
+    jibu_kosa "mode si sahihi"
+fi
 
 [ -f "$CREDS" ] || jibu_kosa "credentials hazipatikani"
 # shellcheck disable=SC1090
 set -a; . "$CREDS"; set +a
-
 mysql_q() { mysql -h"${DB_HOST}" -u"${DB_USER}" -p"${DB_PASS}" "${DB_NAME}" -N -B -e "$1" 2>/dev/null; }
 
-# ── 2. Thibitisha mtumiaji KWENYE DATABASE (siyo kumwamini PHP) ──
-ROW="$(mysql_q "SELECT status FROM users WHERE id=${USER_ID} LIMIT 1")"
-[ -n "$ROW" ] || jibu_kosa "mtumiaji hayupo"
-[ "$ROW" = "approved" ] || jibu_kosa "akaunti bado haijaidhinishwa na admin"
+# ── 2. Thibitisha mtumiaji ──
+INFO="$(mysql_q "SELECT status, role FROM users WHERE id=${USER_ID} LIMIT 1")"
+[ -n "$INFO" ] || jibu_kosa "mtumiaji hayupo"
+U_STATUS="$(printf '%s' "$INFO" | cut -f1)"
+U_ROLE="$(printf '%s' "$INFO" | cut -f2)"
+[ "$U_STATUS" = "approved" ] || jibu_kosa "akaunti bado haijaidhinishwa na admin"
 
 exec 9>"$LOCK"
 flock -w 10 9 || jibu_kosa "mfumo una shughuli nyingine - jaribu tena"
 
-# ── 3. Je tayari ana peer? ──
-EXIST="$(mysql_q "SELECT tunnel_ip FROM wg_peers WHERE user_id=${USER_ID} AND revoked_at IS NULL LIMIT 1")"
-
-if [ -n "$EXIST" ] && [ "$MODE" != "--regenerate" ]; then
-    printf '{"ok":false,"already":true,"tunnel_ip":"%s","error":"Tayari una tunnel."}\n' "$EXIST"
-    exit 0
-fi
-
+# ── 3. REGENERATE: badilisha funguo ya tunnel MAALUM (IP haibadiliki) ──
 if [ "$MODE" = "--regenerate" ]; then
-    [ -n "$EXIST" ] || jibu_kosa "huna tunnel ya kubadilisha - omba mpya"
+    # Umiliki unathibitishwa hapa: peer LAZIMA iwe ya mtumiaji huyu
+    TUNNEL_IP="$(mysql_q "SELECT tunnel_ip FROM wg_peers WHERE id=${PEER_ID} AND user_id=${USER_ID} AND revoked_at IS NULL LIMIT 1")"
+    [ -n "$TUNNEL_IP" ] || jibu_kosa "tunnel hiyo si yako au haipo"
 
-    # Tunabaki na anwani ILE ILE kwa makusudi: router yake tayari imesajiliwa
-    # kwenye dashboard kwa IP hiyo. Kubadilisha IP kungemlazimu asasishe
-    # kila mahali. Tunabadilisha FUNGUO pekee.
-    TUNNEL_IP="$EXIST"
+    OLD_PUB="$(mysql_q "SELECT public_key FROM wg_peers WHERE id=${PEER_ID} LIMIT 1")"
     PRIV="$(wg genkey)"
     PUB="$(printf '%s' "$PRIV" | wg pubkey)"
     SRV_PUB="$(cat "${WG_DIR}/tech5g_server.pub")"
 
     cp -a "$WG_CONF" "${WG_CONF}.bak-$(date +%Y%m%d-%H%M%S)"
-
-    # Ondoa block ya peer ya zamani (inayotambulika kwa AllowedIPs yake),
-    # kisha ongeza mpya. Tunatumia python kwa uhakika wa kuchanganua.
-    python3 - "$WG_CONF" "$TUNNEL_IP" <<'PY'
+    python3 - "$WG_CONF" "$OLD_PUB" <<'PY'
 import re, sys
-path, ip = sys.argv[1], sys.argv[2]
+path, oldpub = sys.argv[1], sys.argv[2]
 txt = open(path).read()
-# Gawa kwenye block; block ya peer huanza kwa [Peer] (pamoja na comment yake ya juu)
-out, buf, dropped = [], [], False
 blocks = re.split(r'(?=\n(?:#[^\n]*\n)?\[Peer\])', txt)
-for b in blocks:
-    if re.search(r'AllowedIPs\s*=\s*' + re.escape(ip) + r'/32', b):
-        dropped = True
-        continue
-    out.append(b)
+out = [b for b in blocks if oldpub not in b]
 open(path, 'w').write(''.join(out))
-print("dropped" if dropped else "notfound", file=sys.stderr)
 PY
-
     {
-      printf '\n# ---- reseller user_id=%s (regenerated %s) ----\n' "$USER_ID" "$(date -u +%FT%TZ)"
+      printf '\n# ---- reseller user_id=%s peer=%s (regenerated %s) ----\n' "$USER_ID" "$PEER_ID" "$(date -u +%FT%TZ)"
       printf '[Peer]\nPublicKey  = %s\nAllowedIPs = %s/32\n' "$PUB" "$TUNNEL_IP"
     } >> "$WG_CONF"
 
-    if ! wg syncconf "$WG_IF" <(wg-quick strip "$WG_IF") 2>/dev/null; then
-        jibu_kosa "imeshindikana kutekeleza WireGuard"
-    fi
+    wg syncconf "$WG_IF" <(wg-quick strip "$WG_IF") 2>/dev/null || jibu_kosa "imeshindikana kutekeleza WireGuard"
 
     ESC_PUB="$(printf '%s' "$PUB" | sed "s/'/''/g")"
-    mysql_q "UPDATE wg_peers SET public_key='${ESC_PUB}', created_at=NOW()
-              WHERE user_id=${USER_ID} AND revoked_at IS NULL" >/dev/null
+    mysql_q "UPDATE wg_peers SET public_key='${ESC_PUB}', created_at=NOW() WHERE id=${PEER_ID}" >/dev/null
 
-    printf '{"ok":true,"regenerated":true,"tunnel_ip":"%s","private_key":"%s","server_pubkey":"%s","endpoint":"%s","port":"%s"}\n' \
-        "$TUNNEL_IP" "$PRIV" "$SRV_PUB" "$VPS_IP" "$WG_PORT"
+    printf '{"ok":true,"regenerated":true,"peer_id":%s,"tunnel_ip":"%s","private_key":"%s","server_pubkey":"%s","endpoint":"%s","port":"%s"}\n' \
+        "$PEER_ID" "$TUNNEL_IP" "$PRIV" "$SRV_PUB" "$VPS_IP" "$WG_PORT"
     exit 0
 fi
 
-# ── 4. Chagua octet inayofuata iliyo wazi ──
+# ── 4. TUNNEL MPYA: kikomo kinatoka kwenye mpango wake ──
+# Inaakisi getSubscriptionStatus() ya subscription_helper.php:
+#   plan ipo      -> max_routers ya plan
+#   trial bila plan -> 1
+#   expired / hakuna -> 0
+if [ "$U_ROLE" = "admin" ]; then
+    RUHUSA=999
+else
+    SUB="$(mysql_q "SELECT s.status, IFNULL(p.max_routers,-1)
+                      FROM subscriptions s
+                      LEFT JOIN subscription_plans p ON p.id = s.plan_id
+                     WHERE s.user_id=${USER_ID}
+                     ORDER BY s.created_at DESC LIMIT 1")"
+    if [ -z "$SUB" ]; then
+        jibu_kosa "huna subscription - wasiliana na admin"
+    fi
+    S_STATUS="$(printf '%s' "$SUB" | cut -f1)"
+    S_MAX="$(printf '%s' "$SUB" | cut -f2)"
+
+    if [ "$S_STATUS" = "expired" ]; then
+        jibu_kosa "Muda wa mpango wako umeisha. Fanya malipo ili kuendelea."
+    elif [ "$S_MAX" -ge 0 ] 2>/dev/null; then
+        RUHUSA="$S_MAX"
+    elif [ "$S_STATUS" = "trial" ]; then
+        RUHUSA=1
+    else
+        RUHUSA=0
+    fi
+fi
+
+NAZO="$(mysql_q "SELECT COUNT(*) FROM wg_peers WHERE user_id=${USER_ID} AND revoked_at IS NULL")"
+NAZO="${NAZO:-0}"
+
+if [ "$NAZO" -ge "$RUHUSA" ]; then
+    printf '{"ok":false,"limit":true,"have":%s,"allowed":%s,"error":"Umefikia kikomo cha routers (%s) kwa mpango wako. Fanya upgrade ili kuongeza zaidi."}\n' \
+        "$NAZO" "$RUHUSA" "$RUHUSA"
+    exit 0
+fi
+
 COUNT="$(grep -cE '^\[Peer\]' "$WG_CONF" || true)"
 [ "${COUNT:-0}" -lt "$MAX_PEERS" ] || jibu_kosa "kikomo cha peers kimefikiwa"
 
@@ -128,28 +152,23 @@ for i in $(seq 2 254); do
     fi
 done
 [ -n "$OCTET" ] || jibu_kosa "hakuna anwani iliyobaki kwenye subnet"
-
 TUNNEL_IP="${SUBNET}.${OCTET}"
 
-# ── 5. Tengeneza funguo ──
 PRIV="$(wg genkey)"
 PUB="$(printf '%s' "$PRIV" | wg pubkey)"
 SRV_PUB="$(cat "${WG_DIR}/tech5g_server.pub")"
 
-# ── 6. Andika peer, kisha tekeleza LIVE bila kuvunja zilizopo ──
 cp -a "$WG_CONF" "${WG_CONF}.bak-$(date +%Y%m%d-%H%M%S)"
 {
   printf '\n# ---- reseller user_id=%s (self-service %s) ----\n' "$USER_ID" "$(date -u +%FT%TZ)"
   printf '[Peer]\nPublicKey  = %s\nAllowedIPs = %s/32\n' "$PUB" "$TUNNEL_IP"
 } >> "$WG_CONF"
 
-if ! wg syncconf "$WG_IF" <(wg-quick strip "$WG_IF") 2>/dev/null; then
-    jibu_kosa "imeshindikana kutekeleza WireGuard"
-fi
+wg syncconf "$WG_IF" <(wg-quick strip "$WG_IF") 2>/dev/null || jibu_kosa "imeshindikana kutekeleza WireGuard"
 
-# ── 7. Hifadhi (public key TU - private KAMWE haihifadhiwi) ──
 ESC_PUB="$(printf '%s' "$PUB" | sed "s/'/''/g")"
 mysql_q "INSERT INTO wg_peers (user_id, tunnel_ip, public_key) VALUES (${USER_ID}, '${TUNNEL_IP}', '${ESC_PUB}')" >/dev/null
+NEW_ID="$(mysql_q "SELECT id FROM wg_peers WHERE tunnel_ip='${TUNNEL_IP}' LIMIT 1")"
 
-printf '{"ok":true,"tunnel_ip":"%s","private_key":"%s","server_pubkey":"%s","endpoint":"%s","port":"%s"}\n' \
-    "$TUNNEL_IP" "$PRIV" "$SRV_PUB" "$VPS_IP" "$WG_PORT"
+printf '{"ok":true,"peer_id":%s,"tunnel_ip":"%s","private_key":"%s","server_pubkey":"%s","endpoint":"%s","port":"%s","have":%s,"allowed":%s}\n' \
+    "${NEW_ID:-0}" "$TUNNEL_IP" "$PRIV" "$SRV_PUB" "$VPS_IP" "$WG_PORT" "$((NAZO+1))" "$RUHUSA"

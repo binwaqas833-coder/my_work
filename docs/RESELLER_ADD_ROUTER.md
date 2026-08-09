@@ -179,6 +179,40 @@ hakutoshi — mtu anayejua mbinu angeweza kuomba trial moja kwa moja kwenye rout
 
 ---
 
+## Kuongeza router ya PILI (au ya tatu)
+
+**Kila router inahitaji tunnel yake.** Haziwezi kushirikiana anwani wala
+funguo — kama vile SIM mbili haziwezi kutumia namba moja.
+
+Kwa hiyo kwa kila router mpya, rudia hatua zile zile:
+
+1. **My Mikrotiks** → **➕ Niandalie tunnel nyingine**
+2. Utapata anwani mpya (mfano `10.60.0.6`) na funguo yake
+3. Bandika kwenye router hiyo mpya
+4. Iongeze kwenye dashboard kwa anwani hiyo mpya
+5. Weka bei zake (kila router ina bei zake — zinaweza kutofautiana)
+6. Pakua `login.html`/`status.html` **za router hiyo** (zinakuja na namba yake)
+
+### Unaruhusiwa ngapi?
+
+Inategemea mpango wako:
+
+| Mpango | Routers |
+|---|---|
+| Mwanzo | 1 |
+| Kati | 3 |
+| Biashara | 10 |
+
+Ukifikia kikomo, ukurasa utakuambia na kukupa kiungo cha
+[kufanya upgrade](../subscribe.php). Ukiongeza mpango, tunnel za ziada
+zinapatikana mara moja.
+
+> Kwenye **My Mikrotiks** utaona tunnel zako zote pamoja na hesabu, mfano
+> **"Tunnel zako (2 kati ya 3)"**, na kila moja ina kitufe chake cha
+> **Funguo mpya** endapo utapoteza ya kwake.
+
+---
+
 ## Matatizo yanayojirudia
 
 | Dalili | Sababu / Suluhisho |
