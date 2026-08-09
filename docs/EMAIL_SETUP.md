@@ -12,9 +12,10 @@ mwingine): **Postfix** (SMTP) + **Dovecot** (IMAP) + **OpenDKIM** (saini).
 | Kupokea barua (port 25 kuingia) | ✅ Inafanya kazi |
 | IMAP kwa simu (port 993) | ✅ Inafanya kazi |
 | Kutuma kwa watumiaji walio-thibitishwa (587 / 465) | ✅ Inafanya kazi |
-| Saini ya DKIM | ✅ Inafanya kazi |
 | Kuzuia open relay | ✅ Imezuiwa (`454 Relay access denied`) |
-| **Kutuma NJE (kwenda Gmail n.k.)** | ❌ **Imezuiwa na mtoa huduma** |
+| **Kutuma NJE (OTP kwenda Gmail n.k.)** | ✅ **Inafanya kazi kupitia relay** (angalia §1b) |
+| Kutuma NJE MOJA KWA MOJA (port 25) | ❌ Imezuiwa na mtoa huduma |
+| Saini ya DKIM | ⏸️ Imesimamishwa wakati relay inatumika (angalia §1b) |
 
 ### Kuhusu kutuma nje — soma hii
 
@@ -34,30 +35,113 @@ Ni kizuizi cha mtandao wa mtoa huduma (jambo la kawaida kuzuia spam).
 
 **Barua zinazokwenda nje zitakwama kwenye foleni mpaka mojawapo ya haya:**
 
-**(a) Mtoa huduma afungue port 25 — NJIA INAYOPENDEKEZWA**
-Wasiliana na microsafi/rodlinehost na uombe:
-> "Please unblock outbound TCP port 25 for VPS 143.246.136.110. We run a
-> legitimate mail server for tech5g.co.tz. Also please set reverse DNS (PTR)
-> for 143.246.136.110 to tech5g.co.tz."
+**(a) Mtoa huduma afungue port 25 — NJIA ILIYOCHAGULIWA**
 
-**PTR ni muhimu pia** — kwa sasa IP yetu **haina** rekodi ya PTR
+Tuma ujumbe huu kwa microsafi / rodlinehost (nakili kama ulivyo):
+
+```
+Subject: Request: unblock outbound port 25 + set PTR for VPS 143.246.136.110
+
+Hello,
+
+We operate VPS 143.246.136.110 (ms1.microsafi.com) and run a legitimate
+mail server for our own domain, tech5g.co.tz.
+
+We have two requests:
+
+1) Please UNBLOCK OUTBOUND TCP PORT 25 for this IP.
+   Outbound connections to all external MX hosts currently time out,
+   for example:
+     connect to gmail-smtp-in.l.google.com[142.251.127.27]:25: Connection timed out
+   Inbound port 25 works correctly, and there is no firewall on the server
+   itself (iptables policy is ACCEPT).
+
+2) Please set REVERSE DNS (PTR) for 143.246.136.110 to:
+     tech5g.co.tz
+
+This is for transactional mail only (account verification codes for our
+own customers). The server is fully configured and is NOT an open relay:
+ - Authentication is required to send (SASL via Dovecot)
+ - Unauthenticated relay attempts are rejected with
+   "454 4.7.1 Relay access denied"
+ - Outgoing mail is DKIM-signed (selector: mail)
+ - SPF and DMARC records are published for the domain
+
+Thank you,
+Tech 5G / tech5g.co.tz
+```
+
+**PTR ni muhimu sawa na port 25** — kwa sasa IP yetu **haina** rekodi ya PTR
 (`NXDOMAIN`). Bila PTR, Gmail na Outlook hukataa au hupeleka Spam hata port
 25 ikifunguliwa.
 
-**(b) Pitisha barua kwenye relay ya port 587** (port 587 iko wazi)
-Hii inahitaji akaunti ya nje (Gmail, Brevo, SendGrid n.k.). Ni mstari mmoja:
-
+### Baada ya wao kujibu — jinsi ya kuthibitisha
 ```bash
-postconf -e "relayhost = [smtp.gmail.com]:587"
-postconf -e "smtp_sasl_auth_enable = yes"
-echo "[smtp.gmail.com]:587 akaunti@gmail.com:APP-PASSWORD" > /etc/postfix/sasl_passwd
-chmod 600 /etc/postfix/sasl_passwd && postmap /etc/postfix/sasl_passwd
+# Port 25 imefunguliwa?
+/usr/local/apps/php82/bin/php -r '
+$f=@fsockopen("gmail-smtp-in.l.google.com",25,$e,$s,8);
+echo $f ? "PORT 25 IMEFUNGULIWA\n" : "bado imezuiwa\n";'
+
+# PTR imewekwa?
+dig +short -x 143.246.136.110
+
+# Kisha lazimisha foleni itoke
+postqueue -f && postqueue -p
+```
+
+**(b) Relay kupitia timonsansibar.com — HII NDIYO INAYOTUMIKA SASA ✅**
+
+Barua zinazotoka hupitishwa kwenye akaunti ya `info@timonsansibar.com`
+(Namecheap, `business107.web-hosting.com`) kwa **port 465**, ambayo iko wazi.
+
+```
+relayhost              = [timonsansibar.com]:465
+smtp_sasl_auth_enable  = yes
+smtp_sasl_password_maps= hash:/etc/postfix/sasl_passwd   (chmod 600, .db pekee)
+smtp_tls_wrappermode   = yes
+smtp_tls_security_level= encrypt
+smtp_generic_maps      = hash:/etc/postfix/generic
+```
+
+**MUHIMU — anwani ya mtumaji inaandikwa upya.** Namecheap hukataa barua yenye
+`From` ya domain isiyo yao:
+
+```
+550 Your domain tech5g.co.tz is not allowed in header From
+```
+
+Hivyo `/etc/postfix/generic` ina `@tech5g.co.tz → info@timonsansibar.com`.
+Mpokeaji anaona:
+
+```
+From: Tech 5G Wi-Fi <info@timonsansibar.com>
+Reply-To: Tech 5G Wi-Fi <info@timonsansibar.com>
+```
+
+Jina la biashara (**Tech 5G Wi-Fi**) linabaki; anwani pekee ndiyo inabadilika.
+Majibu yanakwenda `info@timonsansibar.com` — ambayo inapokea kweli, tofauti na
+`support@tech5g.co.tz` ambayo bado haina MX.
+
+**DKIM imesimamishwa** (`smtpd_milters =` na `non_smtpd_milters =`) kwa sababu
+saini ya `d=tech5g.co.tz` HAIENDANI na `From` ya `timonsansibar.com` baada ya
+kuandikwa upya — saini isiyolingana hufeli ukaguzi na kudhuru ufikishaji.
+Namecheap huweka DKIM yao wenyewe. `opendkim` bado inaendesha, tayari kwa
+kurudishwa.
+
+**Vikwazo vya kujua:** Namecheap ni shared hosting yenye kikomo cha barua kwa
+saa/siku (`MAILMAX=1000` kwa muunganisho). Kwa usajili mwingi kwa wakati mmoja,
+hii inaweza kufikia kikomo.
+
+### Kurudi kutuma MOJA KWA MOJA (baada ya mtoa huduma kufungua port 25)
+```bash
+postconf -e "relayhost ="
+postconf -e "smtp_sasl_auth_enable = no"
+postconf -e "smtp_tls_wrappermode = no"
+postconf -e "smtp_generic_maps ="                      # acha From iwe support@tech5g.co.tz
+postconf -e "smtpd_milters = inet:127.0.0.1:12301"     # rudisha DKIM
+postconf -e "non_smtpd_milters = inet:127.0.0.1:12301"
 systemctl reload postfix
 ```
-(`smtp_sasl_password_maps` na `smtp_sasl_security_options` tayari zimewekwa.)
-
-> Mpaka mojawapo ifanyike, **OTP ya usajili haitawafikia watumiaji**. Kupokea
-> barua na kusoma kwa simu kunafanya kazi tayari.
 
 ---
 
