@@ -132,11 +132,35 @@ function countUserRouters($user_id, $conn): int
  * (mabadiliko ya database HAYATENGUKI - tunahifadhi nia ya merchant, na
  * ukurasa bado utaficha kitufe).
  */
-function setRouterTrial($API, bool $enabled): bool
+function setRouterTrial($API, bool $enabled, int $dakika = 5): bool
 {
     if (!$API) {
         return false;
     }
+
+    // ── (1) Hakikisha USER PROFILE ya "trial" ipo ──
+    // Bila hii, kuongeza 'trial' kwenye login-by HAKUFANYI KAZI: MikroTik
+    // haijui muda wala kasi ya kumpa mtumiaji wa bure. (Router halisi ya
+    // bin waqas ilikuwa haina profile hii kabisa.)
+    if ($enabled) {
+        $zilizopo = $API->comm('/ip/hotspot/user/profile/print');
+        $ina_trial = false;
+        if (is_array($zilizopo)) {
+            foreach ($zilizopo as $up) {
+                if (($up['name'] ?? '') === 'trial') { $ina_trial = true; break; }
+            }
+        }
+        if (!$ina_trial) {
+            $API->comm('/ip/hotspot/user/profile/add', [
+                'name'            => 'trial',
+                'session-timeout' => $dakika . 'm',
+                'shared-users'    => '1',
+                'rate-limit'      => '4M/4M',
+            ]);
+        }
+    }
+
+    // ── (2) Hotspot profile: login-by + mipaka ya trial ──
     $profiles = $API->comm('/ip/hotspot/profile/print');
     if (empty($profiles) || !is_array($profiles)) {
         return false;
@@ -147,16 +171,13 @@ function setRouterTrial($API, bool $enabled): bool
         if (!isset($p['.id'], $p['login-by'])) {
             continue;
         }
-        $njia = array_filter(array_map('trim', explode(',', (string)$p['login-by'])));
+        $njia = array_values(array_filter(array_map('trim', explode(',', (string)$p['login-by']))));
         $ina  = in_array('trial', $njia, true);
 
         if ($enabled && !$ina) {
             $njia[] = 'trial';
         } elseif (!$enabled && $ina) {
-            $njia = array_diff($njia, ['trial']);
-        } else {
-            $ok = true;   // tayari iko kama inavyotakiwa
-            continue;
+            $njia = array_values(array_diff($njia, ['trial']));
         }
 
         // MikroTik inakataa login-by tupu - hakikisha angalau http-chap ipo
@@ -164,11 +185,17 @@ function setRouterTrial($API, bool $enabled): bool
             $njia = ['http-chap'];
         }
 
-        $res = $API->comm('/ip/hotspot/profile/set', [
-            '.id'      => $p['.id'],
-            'login-by' => implode(',', $njia),
-        ]);
-        $ok = ($res !== false);
+        $params = ['.id' => $p['.id'], 'login-by' => implode(',', $njia)];
+
+        // trial-uptime-limit na trial-user-profile ni LAZIMA zisimamishwe pia.
+        // Kuongeza 'trial' kwenye login-by peke yake huacha muda ukiwa haujawekwa.
+        if ($enabled) {
+            $params['trial-uptime-limit']  = $dakika . 'm';
+            $params['trial-user-profile']  = 'trial';
+        }
+
+        $res = $API->comm('/ip/hotspot/profile/set', $params);
+        $ok  = ($res !== false);
     }
     return $ok;
 }

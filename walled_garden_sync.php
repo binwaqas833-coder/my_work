@@ -57,11 +57,31 @@ $HOSTS = [
 // 2026-08-07 uliacha IP ya zamani (107.161.168.192) hapa, na kila router
 // mpya ingeruhusu seva isiyokuwepo. Kuipata kutoka domain kunaondoa kabisa
 // aina hii ya hitilafu.
-$server_host = parse_url(APP_BASE_URL, PHP_URL_HOST) ?: 'tech5g.co.tz';
-$server_ip   = filter_var($server_host, FILTER_VALIDATE_IP) ? $server_host : gethostbyname($server_host);
+// Chaguo la kwanza: TECH5G_PUBLIC_IP ikiwekwa wazi. La sivyo tumia domain.
+// TAHADHARI: KAMWE usitegemee APP_BASE_URL peke yake hapa. Kwenye CLI, kama
+// APP_ENV haijawekwa, config.php hurudi 'development' na APP_BASE_URL inakuwa
+// http://localhost/my_work -> gethostbyname('localhost') = 127.0.0.1, na
+// tungeruhusu 127.0.0.1 kwenye kila router (haina maana kabisa, na IP HALISI
+// isingeruhusiwa). Ndiyo maana kuna ukaguzi mkali hapa chini.
+$server_host = getenv('TECH5G_PUBLIC_IP') ?: (parse_url(APP_BASE_URL, PHP_URL_HOST) ?: '');
+if ($server_host === '' || $server_host === 'localhost') {
+    $server_host = 'tech5g.co.tz';   // domain halisi ya production
+}
 
-if (!filter_var($server_ip, FILTER_VALIDATE_IP)) {
-    fwrite(STDERR, "HITILAFU: imeshindikana kupata IP ya {$server_host}. Angalia DNS.\n");
+$server_ip = filter_var($server_host, FILTER_VALIDATE_IP) ? $server_host : gethostbyname($server_host);
+
+// IP LAZIMA iwe ya umma. Loopback/private ingemaanisha usanidi mbovu.
+$ni_ya_umma = filter_var(
+    $server_ip,
+    FILTER_VALIDATE_IP,
+    FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+);
+
+if (!$ni_ya_umma) {
+    fwrite(STDERR,
+        "HITILAFU: IP iliyopatikana kwa '{$server_host}' ni '{$server_ip}' - siyo IP ya umma.\n" .
+        "Walled-garden ingeruhusu anwani isiyo sahihi na portal isingefikika.\n" .
+        "Suluhisho: weka TECH5G_PUBLIC_IP=143.246.136.110 (au APP_BASE_URL sahihi) kisha jaribu tena.\n");
     exit(1);
 }
 
