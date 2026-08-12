@@ -103,19 +103,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
 
     // ── SUBSCRIPTION PLAN UPDATE ──
     } elseif ($action === 'update_plan') {
+        $plan_name   = trim($_POST['plan_name'] ?? '');
         $price       = (float)($_POST['price'] ?? 0);
         $max_routers = (int)($_POST['max_routers'] ?? 0);
         $is_active   = isset($_POST['is_active']) && $_POST['is_active'] == '1' ? 1 : 0;
 
-        if ($price <= 0 || $max_routers <= 0) {
-            echo json_encode(['status' => 'error', 'msg' => 'Bei na idadi ya routers lazima ziwe zaidi ya 0.']);
+        if ($plan_name === '' || $price <= 0 || $max_routers <= 0) {
+            echo json_encode(['status' => 'error', 'msg' => 'Jaza jina, bei (>0) na idadi ya routers (>0).']);
+            exit();
+        }
+        if (mb_strlen($plan_name) > 50) {
+            echo json_encode(['status' => 'error', 'msg' => 'Jina la plan ni refu kupita kiasi (herufi 50).']);
             exit();
         }
 
-        $up = $conn->prepare("UPDATE subscription_plans SET price=?, max_routers=?, is_active=? WHERE id=?");
-        $up->bind_param("diii", $price, $max_routers, $is_active, $id);
+        $dup = $conn->prepare("SELECT id FROM subscription_plans WHERE plan_name = ? AND id != ? LIMIT 1");
+        $dup->bind_param("si", $plan_name, $id);
+        $dup->execute();
+        $exists = $dup->get_result()->num_rows > 0;
+        $dup->close();
+        if ($exists) {
+            echo json_encode(['status' => 'error', 'msg' => 'Plan yenye jina hilo tayari ipo.']);
+            exit();
+        }
+
+        $up = $conn->prepare("UPDATE subscription_plans SET plan_name=?, price=?, max_routers=?, is_active=? WHERE id=?");
+        $up->bind_param("sdiii", $plan_name, $price, $max_routers, $is_active, $id);
         if ($up->execute()) {
-            echo json_encode(['status' => 'success', 'msg' => 'Plan imesasishwa! 🎉', 'price' => number_format($price), 'max_routers' => $max_routers]);
+            echo json_encode(['status' => 'success', 'msg' => 'Plan imesasishwa! 🎉', 'plan_name' => $plan_name, 'price' => number_format($price), 'max_routers' => $max_routers]);
         } else {
             echo json_encode(['status' => 'error', 'msg' => 'Imeshindikana kuhifadhi.']);
         }
@@ -799,7 +814,8 @@ function searchTable() {
 function funguaHaririPlan(id, jina, price, maxRouters, isActive) {
     document.getElementById('planModalTitle').textContent = 'Hariri: ' + jina;
     document.getElementById('planEditId').value = id;
-    document.getElementById('planNameField').style.display = 'none';
+    document.getElementById('planNameField').style.display = '';
+    document.getElementById('planEditName').value = jina;
     document.getElementById('planEditPrice').value = price;
     document.getElementById('planEditRouters').value = maxRouters;
     document.getElementById('planEditActive').checked = (isActive == 1);
@@ -830,7 +846,7 @@ function hifadhiPlan() {
     const isActive   = document.getElementById('planEditActive').checked ? '1' : '0';
     const niMpya     = (id === '');
 
-    if (niMpya && jina === '') {
+    if (jina === '') {
         showToast('Weka jina la plan.', 'error');
         return;
     }
@@ -845,6 +861,7 @@ function hifadhiPlan() {
           + '&max_routers=' + encodeURIComponent(maxRouters)
           + '&is_active=' + isActive
         : 'ajax_action=update_plan&id=' + encodeURIComponent(id)
+          + '&plan_name=' + encodeURIComponent(jina)
           + '&price=' + encodeURIComponent(price)
           + '&max_routers=' + encodeURIComponent(maxRouters)
           + '&is_active=' + isActive)
