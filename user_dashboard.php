@@ -557,12 +557,23 @@ code{font-family:'Space Mono',monospace;font-size:11px;color:var(--accent2);back
 
     <?php if ($subscription_info['status'] === 'grace'): ?>
     <div style="background:rgba(255,176,32,0.12);border:1px solid rgba(255,176,32,0.35);color:#ffb020;padding:12px 18px;border-radius:10px;margin:0 0 18px;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
-        <span>⚠️ Plan yako imeisha muda — uko kwenye siku za onyo hadi <?php echo date('d M Y', strtotime($subscription_info['grace_until'])); ?>. Lipia sasa ili usipoteze access.</span>
+        <span>⚠️ Plan yako imeisha muda — uko kwenye siku za onyo<?php
+            // grace_until inaweza kuwa NULL (subscription_helper huiacha hivyo kama
+            // status ilikuwa tayari 'grace'). strtotime(NULL) ni deprecated PHP 8.1+
+            // na date() ilionyesha "01 Jan 1970" badala ya tarehe halisi.
+            echo !empty($subscription_info['grace_until'])
+                ? ' hadi ' . date('d M Y', strtotime($subscription_info['grace_until']))
+                : '';
+        ?>. Lipia sasa ili usipoteze access.</span>
         <a href="subscribe.php" style="background:#ffb020;color:#04231a;padding:7px 16px;border-radius:8px;text-decoration:none;font-weight:700;font-size:12.5px;white-space:nowrap;">Lipia Sasa</a>
     </div>
     <?php elseif ($subscription_info['status'] === 'trial'): ?>
     <div style="background:rgba(63,199,253,0.1);border:1px solid rgba(63,199,253,0.3);color:#3fc7fd;padding:12px 18px;border-radius:10px;margin:0 0 18px;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
-        <span>🎁 Uko kwenye Trial ya Bure — inaisha <?php echo date('d M Y', strtotime($subscription_info['expires_at'])); ?>.</span>
+        <span>🎁 Uko kwenye Trial ya Bure<?php
+            echo !empty($subscription_info['expires_at'])
+                ? ' — inaisha ' . date('d M Y', strtotime($subscription_info['expires_at']))
+                : '';
+        ?>.</span>
         <a href="subscribe.php" style="background:#3fc7fd;color:#04231a;padding:7px 16px;border-radius:8px;text-decoration:none;font-weight:700;font-size:12.5px;white-space:nowrap;">Ona Plans</a>
     </div>
     <?php endif; ?>
@@ -1233,8 +1244,8 @@ code{font-family:'Space Mono',monospace;font-size:11px;color:var(--accent2);back
         <div class="modal-label">Chagua Aina ya Kifurushi</div>
         <select id="mudaWaBure" class="modal-select-field">
             <?php
-            $t_stmt_bure = $conn->prepare("SELECT * FROM tariffs WHERE user_id=? ORDER BY duration_days ASC");
-            $t_stmt_bure->bind_param("i", $my_id);
+            $t_stmt_bure = $conn->prepare("SELECT * FROM tariffs WHERE user_id=? AND router_id=? ORDER BY duration_days ASC");
+            $t_stmt_bure->bind_param("ii", $my_id, $router_id);
             $t_stmt_bure->execute();
             $t_res_bure = $t_stmt_bure->get_result();
             if ($t_res_bure->num_rows > 0): while ($t = $t_res_bure->fetch_assoc()): ?>
@@ -1310,8 +1321,8 @@ code{font-family:'Space Mono',monospace;font-size:11px;color:var(--accent2);back
             <div class="modal-label">Kifurushi</div>
             <select id="vm-pkg-batch" class="modal-select-field" onchange="vmUpdateBatchPreview()">
                 <?php
-                $t_stmt4 = $conn->prepare("SELECT * FROM tariffs WHERE user_id=? ORDER BY price ASC");
-                $t_stmt4->bind_param("i", $my_id);
+                $t_stmt4 = $conn->prepare("SELECT * FROM tariffs WHERE user_id=? AND router_id=? ORDER BY price ASC");
+                $t_stmt4->bind_param("ii", $my_id, $router_id);
                 $t_stmt4->execute();
                 $t_res4 = $t_stmt4->get_result();
                 if ($t_res4->num_rows > 0): while ($t = $t_res4->fetch_assoc()): ?>
@@ -1413,8 +1424,8 @@ code{font-family:'Space Mono',monospace;font-size:11px;color:var(--accent2);back
         <div class="modal-label">Chagua Kifurushi Kipya</div>
         <select id="renew_package" class="modal-select-field">
             <?php
-            $t_stmt5 = $conn->prepare("SELECT * FROM tariffs WHERE user_id=? ORDER BY price ASC");
-            $t_stmt5->bind_param("i", $my_id);
+            $t_stmt5 = $conn->prepare("SELECT * FROM tariffs WHERE user_id=? AND router_id=? ORDER BY price ASC");
+            $t_stmt5->bind_param("ii", $my_id, $router_id);
             $t_stmt5->execute();
             $t_res5 = $t_stmt5->get_result();
             if($t_res5->num_rows>0): while($t=$t_res5->fetch_assoc()): ?>

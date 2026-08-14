@@ -281,6 +281,42 @@ function disconnectActiveUser($API, $activeId)
 }
 
 /**
+ * Futa COOKIE zote za mtumiaji fulani kwenye MikroTik.
+ *
+ * MUHIMU: hotspot profile zetu zina `login-by=cookie` na
+ * `http-cookie-lifetime=3d`. Ukiondoa session ya active PEKEE, kivinjari cha
+ * mteja kinajilogi chenyewe MARA MOJA kwa kutumia cookie iliyohifadhiwa -
+ * ndiyo maana "Kata" ilionekana haifanyi kazi: mtu alikatwa kisha akarudi
+ * sekunde ile ile bila kuandika chochote.
+ *
+ * @return int idadi ya cookie zilizofutwa
+ */
+function removeHotspotCookies($API, $username): int
+{
+    $cookies = $API->comm('/ip/hotspot/cookie/print', ['?user' => $username]);
+    if (empty($cookies) || !is_array($cookies)) {
+        return 0;
+    }
+
+    $zilizofutwa = 0;
+    foreach ($cookies as $c) {
+        if (!isset($c['.id'])) {
+            continue;
+        }
+        // Thibitisha ni ya mtu huyu kweli - '?user=' ni filter ya server, lakini
+        // toleo fulani za RouterOS hurudisha zote kama filter haikueleweka.
+        if (($c['user'] ?? null) !== $username) {
+            continue;
+        }
+        $res = $API->comm('/ip/hotspot/cookie/remove', ['.id' => $c['.id']]);
+        if ($res !== false) {
+            $zilizofutwa++;
+        }
+    }
+    return $zilizofutwa;
+}
+
+/**
  * Ongeza voucher/user mpya moja kwa moja kwenye MikroTik
  *
  * @param array $extra - params za ziada, mfano: ['limit-uptime' => '7d']
