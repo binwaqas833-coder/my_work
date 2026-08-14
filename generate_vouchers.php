@@ -7,6 +7,7 @@ header('Content-Type: application/json');
 
 include 'login_signup.php';             // inaleta config.php + $conn
 require_once 'routeros_api.class.php';
+require_once 'error_logger.php';        // logSystemError() - makosa yaonekane admin.php
 require_once 'mikrotik_helper.php';     // helper (mysqli version)
 
 // JSON safi: hakikisha error za PHP hazichapishwi ndani ya response (hata dev)
@@ -79,6 +80,20 @@ if (!isset($_SESSION['user_id'])) {
 
 $user_id = (int)$_SESSION['user_id'];
 
+// ── ROUTER ACTIVE (MULTI-ROUTER) ──
+// Reseller mmoja anaweza kuwa na routers kadhaa. Vocha LAZIMA ijue ni ya
+// router ipi - tariffs, vouchers na dashboard zote zime-scope kwa router_id.
+// Tunatumia router ile ile iliyochaguliwa kwenye dashboard
+// ($_SESSION['active_router_id']), na kuthibitisha bado ni mali yake.
+$router_id = (int)($_SESSION['active_router_id'] ?? 0);
+if ($router_id > 0 && !routerBelongsToUser($router_id, $user_id, $conn)) {
+    $router_id = 0;
+    unset($_SESSION['active_router_id']);
+}
+if ($router_id <= 0) {
+    jibu('error', 'Chagua router unayotaka kutengenezea vocha kwanza. 📡');
+}
+
 // ── POKEA DATA (sawa na vile vmGenerate() inavyotuma) ──
 $mode          = $_POST['mode']          ?? 'batch';      // 'batch' | 'single' | 'free'
 $package_type  = trim($_POST['package']  ?? '');          // mfano: 'daily', 'weekly', 'monthly'
@@ -113,14 +128,16 @@ if ($mode === 'single' && empty($phone)) {
 }
 
 // ── VUTA TARIFF HALISI KUTOKA DATABASE (chanzo cha ukweli - siyo data za JS) ──
-$t_stmt = $conn->prepare("SELECT * FROM tariffs WHERE user_id = ? AND package_type = ? LIMIT 1");
-$t_stmt->bind_param("is", $user_id, $package_type);
+// Tariff LAZIMA i-scope kwa router_id pia - kila router ina bei/profile zake
+// (mfano "daily" ya Router 1 = 1000 TZS, ya Router 2 = 1500 TZS).
+$t_stmt = $conn->prepare("SELECT * FROM tariffs WHERE user_id = ? AND router_id = ? AND package_type = ? LIMIT 1");
+$t_stmt->bind_param("iis", $user_id, $router_id, $package_type);
 $t_stmt->execute();
 $tariff = $t_stmt->get_result()->fetch_assoc();
 $t_stmt->close();
 
 if (!$tariff) {
-    jibu('error', 'Kifurushi hicho hakipatikani kwenye akaunti yako.');
+    jibu('error', 'Kifurushi hicho hakipatikani kwenye router hii.');
 }
 
 $tariff_id     = (int)$tariff['id'];
@@ -144,16 +161,11 @@ if ($duration_days < 1) {
 
 // ── UNGANISHA NA MIKROTIK (LAZIMA kila wakati - vocha lazima ifike MikroTik) ──
 // Vocha isiyofika MikroTik haina thamani - mtu hawezi ku-login hotspot nayo.
-$mt_res = $conn->query("SELECT * FROM mikrotik_configs WHERE user_id='$user_id' LIMIT 1");
-if (!$mt_res || $mt_res->num_rows == 0) {
-    jibu('error', 'Hujasajili router yako ya MikroTik kwenye mfumo bado! 📡');
-}
-$router = $mt_res->fetch_assoc();
-
-$API = new RouterosAPI();
-$API->debug = false;
-
-if (!$API->connect($router['mikrotik_ip'], $router['api_user'], mt_decrypt($router['api_pass']))) {
+// getMikrotikConnection() ndiyo njia sahihi: inathibitisha umiliki wa router,
+// inaweka $API->port kutoka api_port (connect() peke yake hutumia 8728 tu), na
+// inaandika logSystemError() muunganisho ukishindikana.
+$API = getMikrotikConnection($router_id, $user_id, $conn);
+if (!$API) {
     jibu('error', 'Mawasiliano na MikroTik yamefeli! Kagua kama router ipo Online na API imewashwa. 📡❌');
 }
 
@@ -203,18 +215,26 @@ for ($i = 0; $i < $quantity; $i++) {
     // Kama MikroTik imeshindwa kupokea vocha - SIMAMA, usihifadhi database
     if (isset($response['!trap'])) {
         $fail_count++;
+        logSystemError($conn, 'generate_vouchers.php',
+            "MikroTik imekataa vocha {$voucher_code}: " . json_encode($response['!trap']),
+            ['user_id' => $user_id, 'router_id' => $router_id,
+             'context' => ['profile' => $profile_name, 'limit_uptime' => $mikrotik_limit_uptime]]
+        );
         continue;
     }
 
     $mikrotik_synced = 1; // MikroTik imepokea vocha - tunaweza hifadhi DB
 
     // ── HIFADHI KWENYE DATABASE (columns zote muhimu zimejazwa) ──
+    // router_id ni NOT NULL bila default - ikiachwa nje, MariaDB (strict mode)
+    // hukataa INSERT nzima kwa "Field 'router_id' doesn't have a default value"
+    // na vocha huishia MikroTik pekee bila kuonekana kwenye dashboard.
     $ins = $conn->prepare("
         INSERT INTO vouchers
-            (user_id, phone, voucher_code, package_type, price, duration_days,
+            (user_id, router_id, phone, voucher_code, package_type, price, duration_days,
              mikrotik_profile, status, payment_method, type, mikrotik_synced, expiry_date)
         VALUES
-            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, $expiry_sql)
+            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, $expiry_sql)
     ");
 
     // phone inahifadhiwa kwa single/free kwa rejea, hata kama vocha bado
@@ -222,8 +242,9 @@ for ($i = 0; $i < $quantity; $i++) {
     $phone_to_save = ($mode === 'single' || $mode === 'free') ? $phone : '';
 
     $ins->bind_param(
-        "isssdissssi",
+        "iisssdissssi",
         $user_id,
+        $router_id,
         $phone_to_save,
         $voucher_code,
         $package_label,
@@ -236,13 +257,36 @@ for ($i = 0; $i < $quantity; $i++) {
         $mikrotik_synced
     );
 
-    if ($ins->execute()) {
+    // PHP 8.1+ huwasha MYSQLI_REPORT_ERROR|MYSQLI_REPORT_STRICT kwa default, hivyo
+    // execute() HUTUPA mysqli_sql_exception badala ya kurudisha false. Bila try/catch
+    // hapa ukurasa ungekufa kimya (display_errors=0) na JS ingeona "Tatizo la mtandao"
+    // badala ya sababu halisi - ndivyo ilivyokuwa kabla router_id haijaongezwa.
+    $saved   = false;
+    $db_kosa = '';
+    try {
+        $saved = $ins->execute();
+        if (!$saved) {
+            $db_kosa = $ins->error;
+        }
+    } catch (\Throwable $e) {
+        $db_kosa = $e->getMessage();
+    }
+    $ins->close();
+
+    if ($saved) {
         $success_count++;
         $codes_generated[] = $voucher_code;
     } else {
+        // DB imekataa BAADA ya MikroTik kukubali - ondoa mtumiaji kwenye router
+        // ili tusiache "orphan" anayeweza ku-login lakini hayupo kwenye mfumo.
         $fail_count++;
+        logSystemError($conn, 'generate_vouchers.php',
+            "Kuhifadhi vocha {$voucher_code} kumeshindikana: {$db_kosa}",
+            ['user_id' => $user_id, 'router_id' => $router_id,
+             'context' => ['package' => $package_label, 'mode' => $mode]]
+        );
+        removeHotspotUserFromMikrotik($API, $voucher_code);
     }
-    $ins->close();
 }
 
 $API->disconnect();
