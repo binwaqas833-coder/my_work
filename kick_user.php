@@ -27,8 +27,16 @@ if ($username === '') {
     exit();
 }
 
-// Pata connection ya MikroTik ya user huyu (admin/reseller) kupitia helper
-$API = getMikrotikConnection($my_id, $conn);
+// Router "active" ya dashboard - kataInternet() inakata mtu aliye kwenye
+// router unayoiangalia sasa hivi, siyo router ya kwanza tu.
+$router_id = (int)($_SESSION['active_router_id'] ?? 0);
+if ($router_id <= 0 || !routerBelongsToUser($router_id, $my_id, $conn)) {
+    echo json_encode(['status' => 'error', 'message' => 'Chagua router kwanza.']);
+    exit();
+}
+
+// Pata connection ya MikroTik ya router hii kupitia helper
+$API = getMikrotikConnection($router_id, $my_id, $conn);
 
 if (!$API) {
     echo json_encode(['status' => 'error', 'message' => 'Imeshindwa kuunganisha na MikroTik. Angalia mipangilio yako.']);

@@ -40,16 +40,19 @@ $stmt->close();
 // 2. Sync na MikroTik (Pro Step) - haisimamishi mafanikio ya update kama itashindwa
 $sync_warning = null;
 try {
-    $API = getMikrotikConnection($user_id, $conn);
+    // Chota profile + router ya hili bando (prepared statement, salama).
+    // router_id LAZIMA itoke kwenye tariff yenyewe: kila router ina tariffs
+    // zake, na getMikrotikConnection() inahitaji ($router_id, $user_id, $conn)
+    // tangu mfumo uhamie multi-router.
+    $p_stmt = $conn->prepare("SELECT profile_name, router_id FROM tariffs WHERE id = ? AND user_id = ?");
+    $p_stmt->bind_param("ii", $bando_id, $user_id);
+    $p_stmt->execute();
+    $bando = $p_stmt->get_result()->fetch_assoc();
+    $p_stmt->close();
+
+    $API = $bando ? getMikrotikConnection((int)$bando['router_id'], $user_id, $conn) : null;
 
     if ($API) {
-        // Chota jina la profile la hili bando (prepared statement, salama)
-        $p_stmt = $conn->prepare("SELECT profile_name FROM tariffs WHERE id = ? AND user_id = ?");
-        $p_stmt->bind_param("ii", $bando_id, $user_id);
-        $p_stmt->execute();
-        $bando = $p_stmt->get_result()->fetch_assoc();
-        $p_stmt->close();
-
         if ($bando && !empty($bando['profile_name'])) {
             $API->comm("/ip/hotspot/user/profile/set", [
                 ".id"     => $bando['profile_name'],
@@ -58,7 +61,9 @@ try {
         }
         $API->disconnect();
     }
-} catch (Exception $e) {
+} catch (\Throwable $e) {
+    // \Throwable siyo Exception: makosa kama ArgumentCountError/TypeError ni Error,
+    // hayakukamatwa na `catch (Exception)` - ukurasa ulikufa kimya badala ya kutoa JSON.
     // Database imeshafanikiwa kubadilika; MikroTik sync ikishindwa, mwambie mtumiaji bila kuzuia mafanikio
     $sync_warning = 'Bei imehifadhiwa, lakini sync na router imeshindikana.';
 }

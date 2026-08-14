@@ -153,8 +153,22 @@ if (empty($kodi_vocha)) {
 }
 
 // ── 2. TAFUTA VOCHA KWENYE DATABASE ──
-$v_stmt = $conn->prepare("SELECT * FROM vouchers WHERE voucher_code = ? LIMIT 1");
-$v_stmt->bind_param("s", $kodi_vocha);
+// MUHIMU (MULTI-ROUTER): vocha ni ya ROUTER MOJA MAALUM. Tukitafuta kwa
+// voucher_code peke yake, mteja aliye kwenye router A angeweza kutumia vocha
+// ya router B (hata ya reseller mwingine kabisa). Hivyo tunai-scope kwa
+// router_id ile ile aliyotokea nayo kwenye hotspot (index_backup.php
+// huihifadhi kwenye session kutoka ?router_id= ya login.html).
+$router_id_mteja = (int)($_SESSION['router_id'] ?? 0);
+
+if ($router_id_mteja > 0) {
+    $v_stmt = $conn->prepare("SELECT * FROM vouchers WHERE voucher_code = ? AND router_id = ? LIMIT 1");
+    $v_stmt->bind_param("si", $kodi_vocha, $router_id_mteja);
+} else {
+    // Hakuna router kwenye session (mfano ameingia moja kwa moja bila kupitia
+    // hotspot) - tumia code peke yake; router itatoka kwenye vocha yenyewe.
+    $v_stmt = $conn->prepare("SELECT * FROM vouchers WHERE voucher_code = ? LIMIT 1");
+    $v_stmt->bind_param("s", $kodi_vocha);
+}
 $v_stmt->execute();
 $voucher = $v_stmt->get_result()->fetch_assoc();
 $v_stmt->close();
@@ -176,11 +190,15 @@ if ($voucher['status'] === 'expired') {
 }
 
 $reseller_id_halisi = (int)$voucher['user_id'];
+$router_id_halisi   = (int)$voucher['router_id'];
 $profile_name       = $voucher['mikrotik_profile'];
 $duration_days      = (int)$voucher['duration_days'];
 
 // ── 4. UNGANISHA NA MIKROTIK YA RESELLER MWENYE VOCHA HII ──
-$API = getMikrotikConnection($reseller_id_halisi, $conn);
+// getMikrotikConnection() inahitaji ($router_id, $user_id, $conn) tangu
+// mfumo uhamie multi-router. Router inatoka kwenye vocha yenyewe - ndiyo
+// router pekee ambayo vocha hii ipo/inatakiwa kuwepo.
+$API = getMikrotikConnection($router_id_halisi, $reseller_id_halisi, $conn);
 $login_imefanikiwa = false;
 $login_njia         = null; 
 $login_url           = null;
@@ -204,7 +222,13 @@ if ($API) {
             $login_njia = 'api';
         }
     }
-    elseif (!empty($client_link)) {
+
+    // Njia ya API ikishindwa (mfano host bado haijaingia kwenye jedwali la
+    // hotspot host), tumtumie kwenye fomu ya login ya MikroTik yenyewe -
+    // ndiyo njia ya kawaida ya hotspot na inafanya kazi hata API ikigoma.
+    // Vocha ipo salama router-ni, hivyo hii ni jaribio la pili la haki
+    // badala ya kumwambia mteja "imeshindikana" wakati vocha ni halali.
+    if (!$login_imefanikiwa && !empty($client_link)) {
         $login_url = $client_link . "?username=" . urlencode($kodi_vocha) . "&password=" . urlencode($kodi_vocha);
         $login_imefanikiwa = true;
         $login_njia = 'redirect';

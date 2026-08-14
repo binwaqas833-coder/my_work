@@ -33,7 +33,7 @@ if ($vid <= 0) {
 }
 
 // ── 1. THIBITISHA VOCHA HII NI YAKO KABLA ya kufanya lolote ──
-$v_stmt = $conn->prepare("SELECT voucher_code, mikrotik_synced FROM vouchers WHERE id = ? AND user_id = ? LIMIT 1");
+$v_stmt = $conn->prepare("SELECT voucher_code, mikrotik_synced, router_id FROM vouchers WHERE id = ? AND user_id = ? LIMIT 1");
 $v_stmt->bind_param("ii", $vid, $my_id);
 $v_stmt->execute();
 $voucher = $v_stmt->get_result()->fetch_assoc();
@@ -51,7 +51,8 @@ if (!$voucher) {
 // kwenye router baada ya kufutwa kwenye mfumo.
 $mikrotik_removed = null; // null = haikuhitajika, true/false = ilijaribiwa
 if (!empty($voucher['mikrotik_synced'])) {
-    $API = getMikrotikConnection($my_id, $conn);
+    // Router inatoka kwenye vocha yenyewe - vocha ipo kwenye router MOJA tu.
+    $API = getMikrotikConnection((int)$voucher['router_id'], $my_id, $conn);
     if ($API) {
         $result = removeHotspotUserFromMikrotik($API, $voucher['voucher_code']);
         $mikrotik_removed = ($result !== false);

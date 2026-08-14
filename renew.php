@@ -17,6 +17,14 @@ if (!isset($_SESSION['user_id'])) {
 }
 $owner_id = $_SESSION['user_id'];
 
+// Router "active" ya dashboard - renew inafanyika kwa router unayoiangalia sasa.
+// tariffs na vouchers zote zime-scope kwa router_id tangu mfumo uhamie multi-router.
+$router_id = (int)($_SESSION['active_router_id'] ?? 0);
+if ($router_id <= 0 || !routerBelongsToUser($router_id, $owner_id, $conn)) {
+    echo json_encode(['status' => 'error', 'message' => 'Chagua router kwanza.']);
+    exit();
+}
+
 // 2. Pokea data kwa POST (kutoka modal yetu)
 $phone       = trim($_POST['username'] ?? ''); // ni namba ya simu, sio jina la MikroTik
 $mpango_mpya = trim($_POST['package']  ?? ''); // hii ni package_type HALISI kutoka jedwali la tariffs
@@ -29,8 +37,8 @@ if (empty($phone) || empty($mpango_mpya)) {
 // 3. Pata tariff HALISI ya kifurushi kipya (chanzo cha ukweli - siyo kubahatisha)
 //    Hii inatupatia profile_name na duration_days sahihi, sawa kabisa na
 //    jinsi generate_vouchers.php inavyopata tariff.
-$t_stmt = $conn->prepare("SELECT * FROM tariffs WHERE user_id = ? AND package_type = ? LIMIT 1");
-$t_stmt->bind_param("is", $owner_id, $mpango_mpya);
+$t_stmt = $conn->prepare("SELECT * FROM tariffs WHERE user_id = ? AND router_id = ? AND package_type = ? LIMIT 1");
+$t_stmt->bind_param("iis", $owner_id, $router_id, $mpango_mpya);
 $t_stmt->execute();
 $tariff = $t_stmt->get_result()->fetch_assoc();
 $t_stmt->close();
@@ -58,8 +66,8 @@ if (strpos($p_lower, 'week') !== false || strpos($p_lower, 'wiki') !== false) {
 
 // 4. Tafuta VOUCHER HALISI ya mteja huyu ili kupata voucher_code yake
 //    (jina la mtumiaji kwenye MikroTik ni voucher_code, SIYO namba ya simu!)
-$vf_stmt = $conn->prepare("SELECT id, voucher_code FROM vouchers WHERE phone = ? AND user_id = ? ORDER BY created_at DESC LIMIT 1");
-$vf_stmt->bind_param("si", $phone, $owner_id);
+$vf_stmt = $conn->prepare("SELECT id, voucher_code FROM vouchers WHERE phone = ? AND user_id = ? AND router_id = ? ORDER BY created_at DESC LIMIT 1");
+$vf_stmt->bind_param("sii", $phone, $owner_id, $router_id);
 $vf_stmt->execute();
 $voucher_row = $vf_stmt->get_result()->fetch_assoc();
 $vf_stmt->close();
@@ -72,7 +80,7 @@ if (!$voucher_row) {
 $mikrotik_username = $voucher_row['voucher_code'];
 
 // 5. Unganisha na MikroTik kupitia helper (inaheshimu api_port kiotomatiki)
-$API = getMikrotikConnection($owner_id, $conn);
+$API = getMikrotikConnection($router_id, $owner_id, $conn);
 
 if (!$API) {
     echo json_encode(['status' => 'error', 'message' => 'Imeshindikana kuunganisha na MikroTik. Angalia router yako.']);
