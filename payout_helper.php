@@ -5,8 +5,10 @@
  * KUTOA PESA (cash-out ya reseller) kupitia Dalipay Disbursements API.
  *
  * Mtiririko kamili:
- *   1. cash_out.php   - reseller anaomba. Salio lake linakatwa MARA MOJA
- *                       (linashikiliwa), ombi linakuwa 'pending'.
+ *   1. cash_out.php   - reseller anaomba kwa ROUTER MOJA. Ombi lenyewe
+ *                       ndilo linaloshikilia pesa (balance_helper.php
+ *                       inalipunguza kwenye salio la router hiyo mara moja),
+ *                       ombi linakuwa 'pending'.
  *   2. admin.php      - admin abonyeza "Thibitisha" -> sendPayoutToGateway()
  *                       inaituma Dalipay. Hali inakuwa 'awaiting_approval'.
  *   3. Dalipay        - operator wao anaidhinisha, kisha pesa inatumwa.
@@ -26,6 +28,17 @@ require_once __DIR__ . '/error_logger.php';
 /**
  * Rudisha salio la reseller na weka hali ya mwisho ya ombi.
  * Inatumika pale TU tunapojua kwa uhakika pesa HAIKUTOKA.
+ *
+ * TANGU 2026-08-22: salio HALIHIFADHIWI kwenye users.balance tena -
+ * linakokotolewa kutoka payment_transactions.net_amount kasoro maombi
+ * yaliyopo (balance_helper.php). Hivyo "kurudisha salio" ni kubadilisha
+ * hali ya ombi kuwa 'failed'/'rejected' TU: mara hali inapobadilika,
+ * ombi hilo halihesabiki tena kwenye vilivyoshikiliwa na pesa inarudi
+ * YENYEWE kwenye salio la router husika.
+ *
+ * Faida: hakuna njia ya kuongeza salio mara mbili kwa ombi lilelile.
+ * Ulinzi wa 'FOR UPDATE' + ukaguzi wa hali umebaki kwa sababu bado
+ * hatutaki ombi lililofika mwisho likabadilishwa tena.
  */
 function refundPayout($conn, int $payout_id, string $status, string $reason): bool
 {
@@ -49,10 +62,8 @@ function refundPayout($conn, int $payout_id, string $status, string $reason): bo
         $u->execute();
         $u->close();
 
-        $r = $conn->prepare("UPDATE users SET balance = balance + ? WHERE id = ?");
-        $r->bind_param("di", $row['amount'], $row['user_id']);
-        $r->execute();
-        $r->close();
+        // Hakuna "UPDATE users SET balance = balance + ?" hapa tena - angalia
+        // maelezo juu. UPDATE ya hali hapo juu ndiyo inayorudisha pesa.
 
         $conn->commit();
         return true;

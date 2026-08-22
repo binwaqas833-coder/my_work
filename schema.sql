@@ -63,6 +63,9 @@ CREATE TABLE users (
     last_active_router_id   INT NULL,                -- router ya mwisho aliyoitumia (mikrotik_configs.router_id)
     alert_email             VARCHAR(150) NULL,        -- email ya kupokea alerts za station offline
     notify_station_offline  TINYINT(1)   NOT NULL DEFAULT 1,
+    -- HAITUMIKI TANGU 2026-08-22. Salio la cash-out sasa linakokotolewa
+    -- kwa kila router kutoka payment_transactions.net_amount kasoro maombi
+    -- yaliyopo (balance_helper.php). Column imebaki kwa historia tu.
     balance                 DECIMAL(10,2) NOT NULL DEFAULT 0,
     created_at              TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_parent_admin (parent_admin_id),
@@ -188,7 +191,10 @@ CREATE TABLE payment_transactions (
     router_id      INT NULL,
     phone          VARCHAR(20)  NOT NULL,
     package_type   VARCHAR(100) NOT NULL,
-    amount         DECIMAL(10,2) NOT NULL,
+    amount         DECIMAL(10,2) NOT NULL,          -- GROSS: alicholipa mteja kabla ya ada
+    fee_percent    DECIMAL(6,3)  NOT NULL DEFAULT 3.800,  -- ada ya jukwaa (%)
+    fee_amount     DECIMAL(10,2) NOT NULL DEFAULT 0.00,   -- ada halisi (imekokotolewa mara MOJA)
+    net_amount     DECIMAL(10,2) NOT NULL DEFAULT 0.00,   -- anachomiliki mwenye router (gross - ada)
     transaction_id VARCHAR(64)  NOT NULL UNIQUE,   -- rejea YETU (external_id kwa gateway)
     gateway_uuid      VARCHAR(64) NULL,             -- uuid ya Dalipay (kuuliza hali ya malipo)
     gateway_reference VARCHAR(64) NULL,             -- col_... (kunukuu kwa Dalipay support)
@@ -203,13 +209,15 @@ CREATE TABLE payment_transactions (
     KEY idx_user (user_id),
     KEY idx_txn (transaction_id),
     KEY idx_router_id (router_id),
-    KEY idx_gateway_uuid (gateway_uuid)
+    KEY idx_gateway_uuid (gateway_uuid),
+    KEY idx_owner_router_status (user_id, router_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ── MAOMBI YA CASH OUT (payout) ZA RESELLER ── [NDIO ZIADA: haikuwepo schema.sql ya zamani]
 CREATE TABLE payout_requests (
     id           INT AUTO_INCREMENT PRIMARY KEY,
     user_id      INT NOT NULL,
+    router_id    INT NULL,                          -- ombi ni la router MOJA (NULL = ombi la zamani)
     phone_number VARCHAR(20) NOT NULL,
     amount       DECIMAL(10,2) NOT NULL,
     external_id       VARCHAR(30) NULL,             -- PO-... (external_id kwa gateway)
@@ -227,7 +235,8 @@ CREATE TABLE payout_requests (
     UNIQUE KEY uq_external_id (external_id),        -- kinga dhidi ya malipo mara mbili
     KEY idx_user_id (user_id),
     KEY idx_status (status),
-    KEY idx_gateway_reference (gateway_reference)
+    KEY idx_gateway_reference (gateway_reference),
+    KEY idx_owner_router_status (user_id, router_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ── KUZUIA MAJARIBIO YA VOCHA MAKOSA MAKOSA (rate limiting) ──
@@ -295,4 +304,5 @@ ALTER TABLE payment_transactions
     ADD CONSTRAINT fk_payment_router FOREIGN KEY (router_id) REFERENCES mikrotik_configs(router_id) ON DELETE SET NULL; -- NDIO ZIADA
 
 ALTER TABLE payout_requests
-    ADD CONSTRAINT fk_payout_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE; -- NDIO ZIADA
+    ADD CONSTRAINT fk_payout_user   FOREIGN KEY (user_id)   REFERENCES users(id) ON DELETE CASCADE, -- NDIO ZIADA
+    ADD CONSTRAINT fk_payout_router FOREIGN KEY (router_id) REFERENCES mikrotik_configs(router_id) ON DELETE SET NULL;

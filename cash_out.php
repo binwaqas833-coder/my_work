@@ -2,14 +2,30 @@
 /**
  * cash_out.php
  * -------------------------------------------------------------
- * Reseller anaomba kutoa salio lake lililopo kwenye akaunti (users.balance).
- * Ombi linakwenda kwenye payout_requests na salio linakatwa.
+ * Reseller/Admin anaomba kutoa pesa anazomiliki KWA KILA ROUTER.
+ *
+ * SALIO LINATOKA WAPI (angalia balance_helper.php kwa maelezo kamili):
+ *
+ *     Mteja analipa (gross)
+ *            -> ada ya 3.8% inakokotolewa MARA MOJA muamala unapokamilika
+ *               (payment_helper.php) na kuhifadhiwa kwenye
+ *               payment_transactions.fee_amount / net_amount
+ *            -> net_amount ndiyo anayomiliki mwenye router
+ *            -> salio la router = SUM(net_amount) - maombi ya cash-out
+ *               yaliyopo (pending/awaiting_approval/success)
+ *
+ * MUHIMU: ukurasa huu HAUKATI 3.8% tena. net_amount tayari imekatwa.
+ * Ukiona kukokotoa 3.8% hapa - ni hitilafu.
+ *
+ * MUHIMU (MULTI-ROUTER): kila ombi ni la router MOJA. Pesa za router A
+ * haziwezi kuombwa kama salio la router B.
  * -------------------------------------------------------------
  */
 session_start();
 include 'auth_check.php';
 include 'login_signup.php';
-require_once 'dalipay_client.php'; // dalipayProviderFromPhone() - kuthibitisha namba MAPEMA
+require_once 'dalipay_client.php';  // dalipayProviderFromPhone() - kuthibitisha namba MAPEMA
+require_once 'balance_helper.php';  // CHANZO KIMOJA cha ada ya 3.8% na salio
 
 // Kikomo cha chini cha ombi moja. Kilikuwa kwenye HTML (min="1000") pekee,
 // hivyo ombi lililotengenezwa kwa mkono lingeweza kupita likiwa TSh 1.
@@ -29,7 +45,7 @@ if (empty($_SESSION['csrf_token'])) {
 }
 
 // 1. Leta taarifa za Reseller
-$stmt_user = $conn->prepare("SELECT phone, email, username, balance FROM users WHERE id = ?");
+$stmt_user = $conn->prepare("SELECT phone, email, username FROM users WHERE id = ?");
 if (!$stmt_user) {
     die("Database Error: " . $conn->error);
 }
@@ -44,7 +60,6 @@ $stmt_user->close();
 // yaliyotumwa Dalipay kama namba ya mpokeaji.
 $user_phone    = trim((string)($reseller['phone'] ?? ''));
 $phone_display = $user_phone !== '' ? $user_phone : 'Haujaweka namba';
-$total_balance = (float)($reseller['balance'] ?? 0);
 
 // Namba lazima iwe ya mtandao unaokubaliwa na gateway. Tunakagua HAPA ili
 // reseller ajue mara moja, badala ya ombi kushikilia salio lake kisha likwame
@@ -55,72 +70,90 @@ $phone_provider = $user_phone !== '' ? dalipayProviderFromPhone($user_phone) : n
 $toast = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_cashout'])) {
-    
+
     // CSRF Check
     if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
         die("Ombi hili si salama (Invalid CSRF Token).");
     }
 
-    $amount = (float)($_POST['amount'] ?? 0);
+    $amount        = (float)($_POST['amount'] ?? 0);
+    $post_router   = (int)($_POST['router_id'] ?? 0);
 
-    if ($amount <= 0) {
-        $toast = ['type' => 'error', 'msg' => 'Tafadhali weka kiasi sahihi cha fedha. ⚠️'];
-    } elseif ($amount < MIN_PAYOUT) {
-        $toast = ['type' => 'error', 'msg' => 'Kiasi cha chini kwa ombi moja ni TSh ' . number_format(MIN_PAYOUT) . '. ⚠️'];
-    } elseif ($amount > MAX_PAYOUT) {
-        // Kikomo cha gateway yenyewe (Dalipay: 1 - 5,000,000). Tunakikagua HAPA
-        // ili reseller ajue mara moja, badala ya ombi kushikilia salio lake
-        // kisha likataliwe wakati admin anaidhinisha.
-        $toast = ['type' => 'error', 'msg' => 'Kiasi cha juu kwa ombi moja ni TSh ' . number_format(MAX_PAYOUT) . '. Gawa ombi lako. ⚠️'];
+    if ($post_router <= 0) {
+        $toast = ['type' => 'error', 'msg' => 'Tafadhali chagua router unayotaka kutoa pesa zake. ⚠️'];
     } elseif ($user_phone === '') {
         $toast = ['type' => 'error', 'msg' => 'Huna namba ya simu kwenye akaunti yako. Iweke kwenye Mipangilio kabla ya kuomba cash out. 🚫'];
     } elseif ($phone_provider === null) {
         $toast = ['type' => 'error', 'msg' => 'Namba yako (' . htmlspecialchars($user_phone) . ') si ya mtandao unaopokea malipo. Tumia Vodacom, Tigo/Yas, Airtel au Halotel. 🚫'];
-    } elseif ($amount > $total_balance) {
-        $toast = ['type' => 'error', 'msg' => "Huwezi kutoa kiasi kinachozidi salio lako la sasa (TSh " . number_format($total_balance, 2) . "). 🚫"];
     } else {
-        $conn->begin_transaction();
+        // Ukaguzi WOTE wa salio (pamoja na lock dhidi ya maombi mawili ya
+        // haraka) uko ndani ya requestRouterPayout(). Hakuna kukokotoa
+        // salio wala ada hapa - chanzo kimoja cha ukweli.
+        $res = requestRouterPayout($conn, $user_id, $post_router, $user_phone,
+                                   $amount, MIN_PAYOUT, MAX_PAYOUT);
 
-        try {
-            // A. Punguza salio KWANZA, kwa masharti (atomic).
-            // Sharti la 'balance >= ?' ndilo linalozuia maombi mawili yanayokuja
-            // kwa pamoja (bofya-mara-mbili, au tabo mbili) kupita ukaguzi wa juu
-            // yote mawili na kuacha salio HASI. Ukaguzi wa juu unasoma salio la
-            // KABLA ya transaction, hivyo peke yake hautoshi.
-            $stmt_deduct = $conn->prepare("UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?");
-            if (!$stmt_deduct) {
-                throw new Exception("Error kwenye kubadilisha balance: " . $conn->error);
-            }
-            $stmt_deduct->bind_param("did", $amount, $user_id, $amount);
-            $stmt_deduct->execute();
-            $deducted = ($stmt_deduct->affected_rows === 1);
-            $stmt_deduct->close();
+        $toast = ['type' => $res['ok'] ? 'success' : 'error',
+                  'msg'  => $res['msg'] . ($res['ok'] ? ' ✅' : ' 🚫')];
 
-            if (!$deducted) {
-                throw new Exception('Salio halikutosha wakati ombi linachakatwa.');
-            }
-
-            // B. Hifadhi ombi kwenye payout_requests
-            $stmt_req = $conn->prepare("INSERT INTO payout_requests (user_id, phone_number, amount, status) VALUES (?, ?, ?, 'pending')");
-            if (!$stmt_req) {
-                throw new Exception("Error kwenye payout_requests: " . $conn->error);
-            }
-            $stmt_req->bind_param("isd", $user_id, $user_phone, $amount);
-            $stmt_req->execute();
-            $stmt_req->close();
-
-            $conn->commit();
-
-            $total_balance -= $amount;
-            $toast = ['type' => 'success', 'msg' => "Ombi lako la Cash Out la TSh " . number_format($amount, 2) . " limepelekwa kwa Admin kikamilifu! ✅"];
-
-        } catch (\Throwable $e) {
-            $conn->rollback();
-            error_log('cash_out.php: ' . $e->getMessage());
-            $toast = ['type' => 'error', 'msg' => 'Hitilafu imetokea, ombi halikupokelewa. Salio lako halijaguswa. Jaribu tena. ❌'];
-        }
+        // Baada ya ombi kufanikiwa, mbaki kwenye router ile ile ili aone
+        // salio jipya mara moja.
+        $_SESSION['active_router_id'] = $post_router;
     }
 }
+
+// 3. Salio la kila router (baada ya POST, ili nambari zionyeshwe zikiwa mpya)
+$balances = getOwnerRouterBalances($conn, $user_id);
+$routers  = $balances['routers'];
+$totals   = $balances['totals'];
+
+// 4. Router iliyochaguliwa: ?router_id= -> POST -> session -> ya kwanza
+$selected_id = (int)($_GET['router_id'] ?? $_POST['router_id'] ?? $_SESSION['active_router_id'] ?? 0);
+if (!isset($routers[$selected_id])) {
+    $selected_id = $routers ? (int)array_key_first($routers) : 0;
+}
+$selected = $routers[$selected_id] ?? null;
+if ($selected_id > 0) {
+    $_SESSION['active_router_id'] = $selected_id;
+}
+
+// 5. Historia ya maombi ya cash-out ya router hii (ili reseller aone
+//    kilichotolewa, kinachosubiri, na kilichokataliwa - siyo tu jumla).
+$history = [];
+if ($selected_id > 0) {
+    $h = $conn->prepare(
+        "SELECT id, amount, status, fail_reason, created_at, approved_at
+           FROM payout_requests
+          WHERE user_id = ? AND router_id = ?
+          ORDER BY id DESC
+          LIMIT 15"
+    );
+    $h->bind_param("ii", $user_id, $selected_id);
+    $h->execute();
+    $hr = $h->get_result();
+    while ($row = $hr->fetch_assoc()) {
+        $history[] = $row;
+    }
+    $h->close();
+}
+
+/** Jina la Kiswahili + rangi kwa kila hali ya ombi. */
+function payoutStatusLabel(string $status): array
+{
+    switch ($status) {
+        case 'success':            return ['Imelipwa',           'var(--accent)'];
+        case 'failed':             return ['Imeshindikana',      'var(--red)'];
+        case 'rejected':           return ['Imekataliwa',        'var(--red)'];
+        case 'awaiting_approval':  return ['Inasubiri Gateway',  '#ffb547'];
+        case 'approved':           return ['Imeidhinishwa',      'var(--accent2)'];
+        default:                   return ['Inasubiri Admin',    '#ffb547'];
+    }
+}
+
+$available = (float)($selected['available'] ?? 0);
+$can_submit = $selected !== null
+              && $available >= MIN_PAYOUT
+              && $user_phone !== ''
+              && $phone_provider !== null;
 ?>
 <!DOCTYPE html>
 <html lang="sw">
@@ -285,6 +318,103 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_cashout'])) {
         margin-top:6px;
     }
 
+    /* ── Mchanganuo wa salio: gross -> ada 3.8% -> available ── */
+    .bal-breakdown{
+        display:grid;
+        grid-template-columns:1fr 1fr;
+        gap:10px;
+        margin-top:18px;
+        padding-top:16px;
+        border-top:1px solid var(--border2);
+        text-align:left;
+    }
+    .bal-cell .k{
+        font-size:10.5px;
+        color:var(--text-dim);
+        text-transform:uppercase;
+        letter-spacing:0.8px;
+        display:block;
+        margin-bottom:3px;
+    }
+    .bal-cell .v{
+        font-family:'Space Mono',monospace;
+        font-size:14px;
+        font-weight:700;
+        color:#fff;
+    }
+    .bal-cell .v.fee{ color:#ffb547; }
+    .bal-cell .v.held{ color:var(--accent2); }
+
+    .router-picker{
+        background:var(--surface);
+        backdrop-filter:var(--blur);
+        -webkit-backdrop-filter:var(--blur);
+        border:1px solid var(--border2);
+        border-radius:var(--radius);
+        padding:16px 20px;
+        margin-bottom:20px;
+    }
+    .router-picker label{
+        display:block;
+        font-size:11px;
+        color:var(--text-dim);
+        text-transform:uppercase;
+        letter-spacing:0.8px;
+        margin-bottom:8px;
+    }
+    .router-picker select{
+        width:100%;
+        padding:11px 14px;
+        border-radius:9px;
+        border:1px solid rgba(255,255,255,0.20);
+        background:rgba(0,0,0,0.45);
+        color:#fff;
+        font-size:14px;
+        font-family:'DM Sans',sans-serif;
+        outline:none;
+        cursor:pointer;
+    }
+    .router-picker select:focus{ border-color:var(--accent); }
+    .router-picker option{ background:#0d1b17; color:#fff; }
+
+    .router-table{
+        width:100%;
+        border-collapse:collapse;
+        font-size:12.5px;
+        margin-top:12px;
+    }
+    .router-table th{
+        text-align:right;
+        font-size:10px;
+        color:var(--text-dim);
+        text-transform:uppercase;
+        letter-spacing:0.7px;
+        font-weight:600;
+        padding:7px 8px;
+        border-bottom:1px solid var(--border2);
+    }
+    .router-table th:first-child{ text-align:left; }
+    .router-table td{
+        padding:9px 8px;
+        border-bottom:1px solid rgba(255,255,255,0.08);
+        text-align:right;
+        font-family:'Space Mono',monospace;
+        font-size:12px;
+    }
+    .router-table td:first-child{
+        text-align:left;
+        font-family:'DM Sans',sans-serif;
+        font-size:13px;
+    }
+    .router-table tr.is-selected td{ background:rgba(7,247,147,0.08); }
+    .router-table tr.total-row td{
+        border-bottom:none;
+        border-top:1px solid var(--border2);
+        font-weight:700;
+        color:var(--accent);
+    }
+    .table-scroll{ overflow-x:auto; }
+
     .form-card{
         background:var(--surface);
         backdrop-filter:var(--blur);
@@ -432,18 +562,79 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_cashout'])) {
         <div class="toast-box <?php echo $toast['type']; ?>"><?php echo htmlspecialchars($toast['msg']); ?></div>
     <?php endif; ?>
 
-    <!-- Balance Box -->
+    <?php if (!$routers): ?>
+
+    <div class="form-card" style="text-align:center;">
+        <h3 style="justify-content:center;"><i class="fa-solid fa-router" style="color:var(--accent2);"></i> Huna Router Yoyote</h3>
+        <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px;">
+            Cash out inafanyika kwa kila router. Sajili router yako kwanza.
+        </p>
+        <a class="back-btn" href="my_mikrotiks.php"><i class="fa-solid fa-plus"></i> Ongeza Router</a>
+    </div>
+
+    <?php else: ?>
+
+    <!-- Chagua Router: kila router ina salio lake -->
+    <div class="router-picker">
+        <label><i class="fa-solid fa-router"></i> Chagua Router</label>
+        <form method="GET" id="routerForm">
+            <select name="router_id" onchange="document.getElementById('routerForm').submit();">
+                <?php foreach ($routers as $rid => $r): ?>
+                    <option value="<?php echo $rid; ?>" <?php echo $rid === $selected_id ? 'selected' : ''; ?>>
+                        <?php echo htmlspecialchars($r['router_label']); ?>
+                        — TSh <?php echo number_format($r['available'], 2); ?> inapatikana
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </form>
+    </div>
+
+    <!-- Salio la router iliyochaguliwa -->
     <div class="bal-card">
-        <div class="bal-title"><i class="fa-solid fa-wallet"></i> Salio Lako la Sasa</div>
-        <div class="bal-amount">TSh <?php echo number_format($total_balance, 2); ?></div>
+        <div class="bal-title">
+            <i class="fa-solid fa-wallet"></i>
+            Salio Linalopatikana · <?php echo htmlspecialchars($selected['router_label']); ?>
+        </div>
+        <div class="bal-amount">TSh <?php echo number_format($available, 2); ?></div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:4px;">
+            Kiasi hiki tayari kimeshakatwa ada ya <?php echo PLATFORM_FEE_PERCENT; ?>%
+        </div>
+
+        <div class="bal-breakdown">
+            <div class="bal-cell">
+                <span class="k">Malipo Ghafi (Gross)</span>
+                <span class="v">TSh <?php echo number_format($selected['gross'], 2); ?></span>
+            </div>
+            <div class="bal-cell">
+                <span class="k">Ada ya Muamala (<?php echo PLATFORM_FEE_PERCENT; ?>%)</span>
+                <span class="v fee">− TSh <?php echo number_format($selected['fees'], 2); ?></span>
+            </div>
+            <div class="bal-cell">
+                <span class="k">Umeshatolewa</span>
+                <span class="v">− TSh <?php echo number_format($selected['paid_out'], 2); ?></span>
+            </div>
+            <div class="bal-cell">
+                <span class="k">Maombi Yanayosubiri</span>
+                <span class="v held">− TSh <?php echo number_format($selected['held'], 2); ?></span>
+            </div>
+        </div>
+
+        <div style="font-size:10.5px;color:var(--text-dim);margin-top:12px;font-family:'Space Mono',monospace;">
+            <?php echo (int)$selected['txn_count']; ?> malipo yaliyokamilika kwenye router hii
+        </div>
     </div>
 
     <!-- Cash Out Form -->
     <div class="form-card">
         <h3><i class="fa-solid fa-hand-holding-dollar" style="color:var(--accent);"></i> Tuma Ombi la Payout</h3>
-        
+
         <form method="POST">
             <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+            <!-- Router ni sehemu ya ombi: seva inathibitisha tena kuwa ni yako -->
+            <input type="hidden" name="router_id" value="<?php echo $selected_id; ?>">
+
+            <label>Router</label>
+            <input type="text" value="<?php echo htmlspecialchars($selected['router_label']); ?>" readonly>
 
             <label>Namba ya Simu ya Kupokelea (Registration Phone)</label>
             <input type="text" value="<?php echo htmlspecialchars($phone_display); ?>" readonly>
@@ -457,13 +648,109 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_cashout'])) {
             <?php endif; ?>
 
             <label>Kiwango Unachotaka Kutoa (TSh)</label>
-            <input type="number" name="amount" min="<?php echo MIN_PAYOUT; ?>" max="<?php echo (float)$total_balance; ?>" step="any" placeholder="Mfano: 5000" required>
+            <input type="number" name="amount" min="<?php echo MIN_PAYOUT; ?>"
+                   max="<?php echo $available; ?>" step="any"
+                   placeholder="Mfano: <?php echo number_format(min($available, 5000), 0, '.', ''); ?>"
+                   <?php echo $can_submit ? '' : 'disabled'; ?> required>
 
-            <button type="submit" name="request_cashout" class="btn-submit">
+            <?php if ($selected !== null && $available < MIN_PAYOUT): ?>
+                <p style="font-size:12px;color:var(--red);margin:-10px 0 16px;">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    Salio la router hii (TSh <?php echo number_format($available, 2); ?>)
+                    halijafikia kiwango cha chini cha TSh <?php echo number_format(MIN_PAYOUT); ?>.
+                </p>
+            <?php endif; ?>
+
+            <button type="submit" name="request_cashout" class="btn-submit"
+                    <?php echo $can_submit ? '' : 'disabled style="opacity:0.45;cursor:not-allowed;"'; ?>>
                 <i class="fa-solid fa-paper-plane"></i> Thibitisha na Tuma Ombi
             </button>
         </form>
     </div>
+
+    <!-- Historia ya cash-out ya router hii -->
+    <div class="form-card" style="margin-top:20px;">
+        <h3><i class="fa-solid fa-clock-rotate-left" style="color:var(--accent2);"></i> Historia ya Cash Out · <?php echo htmlspecialchars($selected['router_label']); ?></h3>
+        <?php if (!$history): ?>
+            <p style="font-size:13px;color:var(--text-dim);">Bado hujaomba cash out kwenye router hii.</p>
+        <?php else: ?>
+        <div class="table-scroll">
+            <table class="router-table">
+                <thead>
+                    <tr>
+                        <th>Tarehe</th>
+                        <th>Kiasi (TSh)</th>
+                        <th>Hali</th>
+                    </tr>
+                </thead>
+                <tbody>
+                <?php foreach ($history as $hrow):
+                    list($hlabel, $hcolor) = payoutStatusLabel($hrow['status']); ?>
+                    <tr>
+                        <td style="font-family:'Space Mono',monospace;font-size:11.5px;color:var(--text-dim);">
+                            <?php echo date('d M Y, H:i', strtotime($hrow['created_at'])); ?>
+                        </td>
+                        <td><?php echo number_format($hrow['amount'], 2); ?></td>
+                        <td style="color:<?php echo $hcolor; ?>;font-family:'DM Sans',sans-serif;font-size:12px;">
+                            <?php echo $hlabel; ?>
+                            <?php if (!empty($hrow['fail_reason']) && in_array($hrow['status'], ['failed','rejected'], true)): ?>
+                                <div style="font-size:10.5px;color:var(--text-dim);margin-top:2px;">
+                                    <?php echo htmlspecialchars($hrow['fail_reason']); ?>
+                                </div>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        <p style="font-size:11px;color:var(--text-dim);margin-top:12px;">
+            Maombi yaliyo <strong>Inasubiri</strong> au <strong>Imelipwa</strong> tayari yamepunguzwa
+            kwenye salio hapo juu. Ombi likikataliwa, pesa inarudi yenyewe.
+        </p>
+        <?php endif; ?>
+    </div>
+
+    <!-- Muhtasari wa routers ZOTE: pesa za router moja haziingiliani na nyingine -->
+    <?php if (count($routers) > 1): ?>
+    <div class="form-card" style="margin-top:20px;">
+        <h3><i class="fa-solid fa-list-ul" style="color:var(--accent2);"></i> Salio la Kila Router</h3>
+        <div class="table-scroll">
+            <table class="router-table">
+                <thead>
+                    <tr>
+                        <th>Router</th>
+                        <th>Gross</th>
+                        <th>Ada <?php echo PLATFORM_FEE_PERCENT; ?>%</th>
+                        <th>Inapatikana</th>
+                    </tr>
+                </thead>
+                <tbody>
+                <?php foreach ($routers as $rid => $r): ?>
+                    <tr class="<?php echo $rid === $selected_id ? 'is-selected' : ''; ?>">
+                        <td>
+                            <a href="?router_id=<?php echo $rid; ?>" style="color:#fff;text-decoration:none;">
+                                <?php echo htmlspecialchars($r['router_label']); ?>
+                            </a>
+                        </td>
+                        <td><?php echo number_format($r['gross'], 2); ?></td>
+                        <td style="color:#ffb547;"><?php echo number_format($r['fees'], 2); ?></td>
+                        <td style="color:var(--accent);font-weight:700;"><?php echo number_format($r['available'], 2); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                    <tr class="total-row">
+                        <td>JUMLA</td>
+                        <td><?php echo number_format($totals['gross'], 2); ?></td>
+                        <td><?php echo number_format($totals['fees'], 2); ?></td>
+                        <td><?php echo number_format($totals['available'], 2); ?></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <?php endif; ?>
+
+    <?php endif; /* $routers */ ?>
 
 </div>
 

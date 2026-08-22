@@ -19,6 +19,7 @@
 require_once 'routeros_api.class.php';
 require_once 'mikrotik_helper.php';   // toleo JIPYA (multi-router)
 require_once 'error_logger.php';
+require_once 'balance_helper.php';    // ada ya 3.8% - CHANZO KIMOJA cha ukweli
 
 /**
  * Kamilisha malipo ya "pending" transaction: tengeneza voucher ya kipekee,
@@ -144,8 +145,22 @@ function completeVoucherPayment($conn, $transaction_id)
         $conn->query("UPDATE vouchers SET expiry_date = DATE_ADD(NOW(), INTERVAL $duration_days DAY), last_login_at = NOW() WHERE id = $voucher_db_id");
     }
 
-    $u = $conn->prepare("UPDATE payment_transactions SET status='completed', voucher_code=?, updated_at=NOW() WHERE transaction_id=?");
-    $u->bind_param("ss", $voucher_code, $transaction_id);
+    // ── ADA YA 3.8% INAKOKOTOLEWA HAPA, MARA MOJA TU ──
+    // Hii ndiyo sehemu PEKEE inayogeuza gross kuwa net. cash_out.php
+    // inasoma net_amount hii kama ilivyo - HAIKATI 3.8% mara ya pili.
+    // (Angalia balance_helper.php kwa maelezo kamili.)
+    $gross = (float)$txn['amount'];
+    $fee   = calculateTransactionFee($gross);
+    $net   = calculateNetAmount($gross);
+    $fee_p = PLATFORM_FEE_PERCENT;
+
+    $u = $conn->prepare(
+        "UPDATE payment_transactions
+            SET status='completed', voucher_code=?,
+                fee_percent=?, fee_amount=?, net_amount=?, updated_at=NOW()
+          WHERE transaction_id=?"
+    );
+    $u->bind_param("sddds", $voucher_code, $fee_p, $fee, $net, $transaction_id);
     $u->execute();
     $u->close();
 

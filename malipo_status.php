@@ -447,7 +447,9 @@ $stmt->close();
                 <th>Muda</th>
                 <th>Simu</th>
                 <th>Kifurushi</th>
-                <th>Kiasi</th>
+                <th>Kiasi (Gross)</th>
+                <th>Ada 3.8%</th>
+                <th>Net (Mmiliki)</th>
                 <th>Rejea (Transaction)</th>
                 <th>Hali</th>
                 <th>Voucher Code</th>
@@ -456,7 +458,7 @@ $stmt->close();
         </thead>
         <tbody>
         <?php if (empty($rows)): ?>
-            <tr><td colspan="8" class="empty"><i class="fa-solid fa-inbox" style="font-size:24px; margin-bottom:8px; display:block;"></i>Hakuna rekodi zilizopatikana.</td></tr>
+            <tr><td colspan="10" class="empty"><i class="fa-solid fa-inbox" style="font-size:24px; margin-bottom:8px; display:block;"></i>Hakuna rekodi zilizopatikana.</td></tr>
         <?php else: foreach ($rows as $r):
             $ni_pending_kwama = ($r['status'] === 'pending') && ((time() - strtotime($r['created_at'])) > $STUCK_MINUTES * 60);
             $badge_class = 'badge-' . $r['status'];
@@ -466,6 +468,15 @@ $stmt->close();
                 <td style="font-weight:600;"><?php echo htmlspecialchars($r['phone']); ?></td>
                 <td><?php echo htmlspecialchars($r['package_type']); ?></td>
                 <td style="font-weight:700; color:var(--accent);"><?php echo number_format($r['amount']); ?>/=</td>
+                <?php // fee_amount/net_amount zinawekwa MARA MOJA muamala unapokamilika
+                      // (payment_helper.php). Hazikokotolewi tena hapa - ni zilezile
+                      // zinazotumika kwenye cash_out.php. ?>
+                <td style="font-family:'Space Mono',monospace; font-size:12px; color:#ffb547;">
+                    <?php echo $r['status'] === 'completed' ? number_format($r['fee_amount']) . '/=' : '-'; ?>
+                </td>
+                <td style="font-family:'Space Mono',monospace; font-size:12px; font-weight:700;">
+                    <?php echo $r['status'] === 'completed' ? number_format($r['net_amount']) . '/=' : '-'; ?>
+                </td>
                 <td style="font-family:'Space Mono',monospace; font-size:11px; color:var(--text-dim);"><?php echo htmlspecialchars($r['transaction_id']); ?></td>
                 <td>
                     <span class="badge <?php echo $badge_class; ?>" data-status-label><?php echo strtoupper($r['status']); ?></span>

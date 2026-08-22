@@ -306,11 +306,14 @@ $mapato_wote_mwezi = mysqli_fetch_assoc(mysqli_query($conn, "
 "))['total'] ?? 0;
 
 // ── VUTA MAOMBI YA PAYOUT (PENDING) ──
+// router_label inaonyeshwa ili admin ajue ombi ni la router ipi - kila
+// ombi sasa ni la router MOJA (angalia balance_helper.php).
 $payout_result = mysqli_query($conn, "
-    SELECT p.*, u.username 
-    FROM payout_requests p 
-    JOIN users u ON p.user_id = u.id 
-    WHERE p.status = 'pending' 
+    SELECT p.*, u.username, m.router_label
+    FROM payout_requests p
+    JOIN users u ON p.user_id = u.id
+    LEFT JOIN mikrotik_configs m ON m.router_id = p.router_id
+    WHERE p.status = 'pending'
     ORDER BY p.id DESC
 ");
 
@@ -589,6 +592,7 @@ tbody tr:hover{background:rgba(255,255,255,0.04)}
                         <tr>
                             <th>#</th>
                             <th>Reseller</th>
+                            <th>Router</th>
                             <th>Namba ya Simu</th>
                             <th>Kiwango (TSh)</th>
                             <th>Tarehe ya Ombi</th>
@@ -601,6 +605,7 @@ tbody tr:hover{background:rgba(255,255,255,0.04)}
                     <tr id="payout-row-<?php echo $p['id']; ?>">
                         <td style="color:var(--text-dim);font-family:'Space Mono',monospace;font-size:11px;"><?php echo $p_no++; ?></td>
                         <td><strong><?php echo htmlspecialchars($p['username']); ?></strong></td>
+                        <td style="font-size:12px;color:var(--text-dim);"><?php echo htmlspecialchars($p['router_label'] ?? '—'); ?></td>
                         <td style="font-family:'Space Mono',monospace;font-size:12px;color:var(--accent2);"><?php echo htmlspecialchars($p['phone_number']); ?></td>
                         <td style="font-family:'Space Mono',monospace;font-size:13px;color:var(--accent);font-weight:700;">TSh <?php echo number_format($p['amount'], 2); ?></td>
                         <td style="font-size:11px;color:var(--text-dim);"><?php echo date('d M Y, H:i', strtotime($p['created_at'])); ?></td>
