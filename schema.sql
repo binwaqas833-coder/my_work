@@ -107,13 +107,14 @@ CREATE TABLE subscriptions (
     grace_until            DATETIME NULL,
     amount_paid            DECIMAL(10,2) NULL,
     payment_transaction_id VARCHAR(64) NULL,        -- SUB-... (external_id kwa gateway)
-    gateway_uuid           VARCHAR(64) NULL,        -- uuid ya Dalipay
-    gateway_reference      VARCHAR(64) NULL,        -- col_...
+    gateway_uuid           VARCHAR(64) NULL,        -- reference ya Snippe (nakala)
+    gateway_reference      VARCHAR(64) NULL,        -- reference ya Snippe (hali huulizwa kwa HII)
     created_at             TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_user (user_id),
     KEY idx_status (status),
     KEY idx_plan_id (plan_id),
-    KEY idx_gateway_uuid (gateway_uuid)
+    KEY idx_gateway_uuid (gateway_uuid),
+    KEY idx_gateway_reference (gateway_reference)    -- webhook hutafuta kwa hii
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ── VIFURUSHI/BEI ZA KILA ROUTER (kila reseller-router ana bei zake) ──
@@ -196,8 +197,8 @@ CREATE TABLE payment_transactions (
     fee_amount     DECIMAL(10,2) NOT NULL DEFAULT 0.00,   -- ada halisi (imekokotolewa mara MOJA)
     net_amount     DECIMAL(10,2) NOT NULL DEFAULT 0.00,   -- anachomiliki mwenye router (gross - ada)
     transaction_id VARCHAR(64)  NOT NULL UNIQUE,   -- rejea YETU (external_id kwa gateway)
-    gateway_uuid      VARCHAR(64) NULL,             -- uuid ya Dalipay (kuuliza hali ya malipo)
-    gateway_reference VARCHAR(64) NULL,             -- col_... (kunukuu kwa Dalipay support)
+    gateway_uuid      VARCHAR(64) NULL,             -- reference ya Snippe (nakala)
+    gateway_reference VARCHAR(64) NULL,             -- reference ya Snippe (hali huulizwa kwa HII)
     status         ENUM('pending','completed','failed') NOT NULL DEFAULT 'pending',
     fail_reason    VARCHAR(255) NULL,               -- sababu halisi ya kushindikana
     claimed_at     DATETIME     NULL,               -- ulinzi: webhook vs poll wasitengeneze vocha mbili
@@ -210,6 +211,7 @@ CREATE TABLE payment_transactions (
     KEY idx_txn (transaction_id),
     KEY idx_router_id (router_id),
     KEY idx_gateway_uuid (gateway_uuid),
+    KEY idx_gateway_reference (gateway_reference),   -- webhook hutafuta kwa hii
     KEY idx_owner_router_status (user_id, router_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -219,10 +221,11 @@ CREATE TABLE payout_requests (
     user_id      INT NOT NULL,
     router_id    INT NULL,                          -- ombi ni la router MOJA (NULL = ombi la zamani)
     phone_number VARCHAR(20) NOT NULL,
-    amount       DECIMAL(10,2) NOT NULL,
+    amount       DECIMAL(10,2) NOT NULL,            -- anachopokea mpokeaji (KAMILI)
+    fee_amount   DECIMAL(10,2) NOT NULL DEFAULT 0.00, -- ada ya Snippe (flat), inashikiliwa pamoja
     external_id       VARCHAR(30) NULL,             -- PO-... (external_id kwa gateway)
     gateway_uuid      VARCHAR(64) NULL,
-    gateway_reference VARCHAR(64) NULL,             -- dsb_... (hali huulizwa kwa HII)
+    gateway_reference VARCHAR(64) NULL,             -- reference ya Snippe (hali huulizwa kwa HII)
     -- 'approved' ni ya zamani (malipo ya mkono). Mtiririko mpya:
     -- pending -> awaiting_approval -> success | failed | rejected
     status       ENUM('pending','approved','awaiting_approval','success','failed','rejected')

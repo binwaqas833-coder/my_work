@@ -13,6 +13,28 @@
  * ------------------------------------------------------------------
  */
 
+// ── SIRI ZA DEVELOPMENT (PC yako pekee) ──
+// Production hupokea siri kama env[...] ndani ya FPM pool. Kwa PC yako,
+// weka faili 'secrets.local.php' inayorudisha array ya thamani. Faili
+// hiyo IMEZUIWA kwenye git (.gitignore: *.local.php) - hivyo siri
+// haziwezi kuingia kwenye repo hata kwa bahati mbaya.
+//
+// Env HALISI (ya seva) daima inashinda faili hii, ili production isiweze
+// kutekwa na faili iliyosahaulika.
+$__secrets_local = __DIR__ . '/secrets.local.php';
+if (is_readable($__secrets_local)) {
+    $__s = require $__secrets_local;
+    if (is_array($__s)) {
+        foreach ($__s as $__k => $__v) {
+            if (getenv($__k) === false) {
+                putenv("$__k=$__v");
+            }
+        }
+    }
+    unset($__s, $__k, $__v);
+}
+unset($__secrets_local);
+
 // ── Mazingira: 'development' (PC yako) au 'production' (VPS ya online) ──
 // Badilisha kuwa 'production' pindi utakapoiweka online (au weka env APP_ENV).
 define('APP_ENV', getenv('APP_ENV') ?: 'development');
@@ -39,23 +61,44 @@ define('APP_BASE_URL', rtrim(
 // hazitasomeka tena. Tengeneza mpya kwa: php -r "echo bin2hex(random_bytes(32));"
 define('MIKROTIK_ENC_KEY', getenv('MIKROTIK_ENC_KEY') ?: 'CHANGE_ME_dev_key_override_in_production');
 
-// ── ISP Gateway ya Dalipay (malipo halisi ya mobile money) ──
+// ── Snippe — gateway ya malipo (https://snippe.sh) ──
 // SIRI HIZI HAZIANDIKWI HAPA KAMWE. Production huzipokea kama env[...]
 // ndani ya FPM pool (/etc/php-fpm-tech5g/pool.d/tech5g.conf) —
-// angalia DEPLOY_DALIPAY.md. Ukiziandika hapa zitaingia kwenye git.
-define('DALIPAY_BASE_URL', rtrim(getenv('DALIPAY_BASE_URL') ?: 'https://app.dalipay.co.tz/api/v1', '/'));
-define('DALIPAY_PUBLIC_KEY',      getenv('DALIPAY_PUBLIC_KEY')      ?: '');
-define('DALIPAY_SECRET_KEY',      getenv('DALIPAY_SECRET_KEY')      ?: '');
-define('DALIPAY_CALLBACK_SECRET', getenv('DALIPAY_CALLBACK_SECRET') ?: '');
+// angalia DEPLOY_SNIPPE.md. Ukiziandika hapa zitaingia kwenye git.
+define('SNIPPE_BASE_URL', rtrim(getenv('SNIPPE_BASE_URL') ?: 'https://api.snippe.sh', '/'));
 
-// Gateway inafanya kazi tu ikiwa key pair zote mbili zipo.
-define('DALIPAY_ENABLED', DALIPAY_PUBLIC_KEY !== '' && DALIPAY_SECRET_KEY !== '');
+// API key (snp_...). Scopes zinazohitajika:
+//   collection:read, collection:create, disbursement:read, disbursement:create
+define('SNIPPE_API_KEY', getenv('SNIPPE_API_KEY') ?: '');
 
-// MOCK: bila keys (mfano PC yako ya development) mfumo unaiga malipo
+// Webhook signing key (whsec_...) — Dashboard: Settings -> Webhook Secret.
+// Bila hii, KILA webhook inakataliwa. Ni sahihi: bila kuthibitisha saini,
+// yeyote anayejua URL angeweza kutuma "payment.completed" ya uongo na
+// kujipa vocha bure.
+define('SNIPPE_WEBHOOK_SECRET', getenv('SNIPPE_WEBHOOK_SECRET') ?: '');
+
+// Umri wa juu wa webhook (sekunde). Snippe wanashauri dakika 5.
+// Inazuia mtu kurudia webhook halali ya zamani.
+define('SNIPPE_WEBHOOK_MAX_AGE', (int)(getenv('SNIPPE_WEBHOOK_MAX_AGE') ?: 300));
+
+// Kiasi cha chini kinachokubalika na Snippe (TZS).
+// ⚠️ Tariff yoyote iliyo chini ya hapa HAIWEZI kulipiwa - angalia
+// DEPLOY_SNIPPE.md §2 kwa query ya kuzitafuta kabla ya kuwasha.
+define('SNIPPE_MIN_AMOUNT', (int)(getenv('SNIPPE_MIN_AMOUNT') ?: 500));
+
+// Domain ya barua pepe za kujaza nafasi kwa wateja wa hotspot (Snippe
+// inalazimisha email kwa kila malipo; mteja wa vocha hatupi barua pepe).
+// Haitumiki kutuma chochote.
+define('SNIPPE_PLACEHOLDER_EMAIL_DOMAIN', getenv('SNIPPE_PLACEHOLDER_EMAIL_DOMAIN') ?: 'hotspot.tech5g.co.tz');
+
+// Gateway inafanya kazi tu ikiwa API key ipo.
+define('SNIPPE_ENABLED', SNIPPE_API_KEY !== '');
+
+// MOCK: bila API key (mfano PC yako ya development) mfumo unaiga malipo
 // yanayofanikiwa baada ya sekunde chache, ili uweze kutest bila pesa halisi.
-// Hakuna njia ya kuwasha mock pale keys zilipo — production KAMWE haitoi
-// vocha bila malipo halisi kuthibitika.
-define('PAYMENT_MOCK_MODE', !DALIPAY_ENABLED);
+// Hakuna njia ya kuwasha mock pale API key ilipo — production KAMWE
+// haitoi vocha bila malipo halisi kuthibitika.
+define('PAYMENT_MOCK_MODE', !SNIPPE_ENABLED);
 define('PAYMENT_MOCK_DELAY_SECONDS', 6);
 
 // ── Error display: zima kwenye production (log badala ya kuonyesha) ──

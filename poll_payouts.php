@@ -2,13 +2,14 @@
 /**
  * poll_payouts.php — CLI TU (cron)
  * ------------------------------------------------------------------
- * Inauliza Dalipay hali ya kila ombi la cash-out lililo 'awaiting_approval'
- * na kulikamilisha: 'success' (pesa imefika) au 'failed'/'rejected'
- * (salio la reseller linarudishwa kiotomatiki).
+ * Inauliza Snippe hali ya kila ombi la cash-out lililo 'awaiting_approval'
+ * na kulikamilisha: 'success' (pesa imefika) au 'failed' (salio la
+ * reseller linarudishwa kiotomatiki).
  *
- * KWA NINI CRON NA SIYO WEBHOOK? Dalipay hutuma webhook kwa COLLECTIONS
- * pekee (collection.success / collection.failed). Hakuna tukio la
- * disbursement, hivyo njia PEKEE ya kujua kama malipo yamefika ni kuuliza.
+ * KWA NINI CRON WAKATI KUNA WEBHOOK? snippe_webhook.php inaharakisha
+ * matokeo, lakini webhook inaweza kupotea (Snippe wanajaribu mara 5
+ * kisha wanaacha). Cron hii ndiyo inayohakikisha kila ombi linafika
+ * mwisho wake hata hivyo.
  *
  * Matumizi (VPS):
  *   set -a; . /root/.tech5g-credentials; set +a
@@ -38,13 +39,13 @@ require_once $APP_DIR . '/payout_helper.php';
 
 $ts = date('Y-m-d H:i:s');
 
-if (!DALIPAY_ENABLED) {
-    echo "[$ts] Gateway haijasanidiwa (DALIPAY_* hazipo). Hakuna kilichofanyika.\n";
+if (!SNIPPE_ENABLED) {
+    echo "[$ts] Gateway haijasanidiwa (SNIPPE_API_KEY haipo). Hakuna kilichofanyika.\n";
     exit(0);
 }
 
 $res = $conn->query(
-    "SELECT id, user_id, amount, gateway_reference, external_id
+    "SELECT id, user_id, amount, phone_number, gateway_reference, external_id
        FROM payout_requests
       WHERE status = 'awaiting_approval'
       ORDER BY id ASC
@@ -61,7 +62,7 @@ $idadi = ['success' => 0, 'failed' => 0, 'rejected' => 0, 'bado' => 0, 'bila_rej
 while ($po = $res->fetch_assoc()) {
     if (empty($po['gateway_reference'])) {
         // Halikuwahi kufika gateway (mtandao ulikatika wakati wa kutuma).
-        // HALIGUSWI kiotomatiki - linahitaji ukaguzi wa mkono kwenye Dalipay.
+        // HALIGUSWI kiotomatiki - linahitaji ukaguzi wa mkono kwenye Snippe.
         $idadi['bila_rejea']++;
         echo "[$ts] Ombi #{$po['id']} ({$po['external_id']}) halina gateway_reference - KAGUA KWA MKONO.\n";
         continue;
@@ -74,24 +75,8 @@ while ($po = $res->fetch_assoc()) {
         echo "[$ts] Ombi #{$po['id']} imekamilika (TSh {$po['amount']}).\n";
 
         // Mjulishe reseller kuwa sasa pesa IMEFIKA kweli
-        $u = $conn->prepare("SELECT email, username FROM users WHERE id = ? LIMIT 1");
-        $u->bind_param("i", $po['user_id']);
-        $u->execute();
-        $mtu = $u->get_result()->fetch_assoc();
-        $u->close();
+        payoutNotifyResellerSuccess($conn, (int)$po['user_id'], (float)$po['amount']);
 
-        if ($mtu && !empty($mtu['email'])) {
-            require_once $APP_DIR . '/email_helper.php';
-            sendStatusEmail(
-                $mtu['email'],
-                $mtu['username'],
-                'Pesa Yako Imetumwa! 💸',
-                'Habari <strong>' . htmlspecialchars($mtu['username'], ENT_QUOTES) . '</strong>,<br><br>'
-                . 'Cash Out yako ya <strong>TSh ' . number_format((float)$po['amount'], 2) . '</strong> '
-                . 'imetumwa kikamilifu kwenye namba yako ya simu.<br><br>'
-                . 'Asante kwa kuendelea kufanya kazi na Tech 5G!'
-            );
-        }
     } elseif ($hali === 'failed' || $hali === 'rejected') {
         $idadi[$hali]++;
         echo "[$ts] Ombi #{$po['id']} $hali - salio la reseller limerudishwa.\n";

@@ -24,13 +24,17 @@
 session_start();
 include 'auth_check.php';
 include 'login_signup.php';
-require_once 'dalipay_client.php';  // dalipayProviderFromPhone() - kuthibitisha namba MAPEMA
+require_once 'snippe_client.php';   // snippeNetworkName() - kuthibitisha namba MAPEMA
 require_once 'balance_helper.php';  // CHANZO KIMOJA cha ada ya 3.8% na salio
 
 // Kikomo cha chini cha ombi moja. Kilikuwa kwenye HTML (min="1000") pekee,
 // hivyo ombi lililotengenezwa kwa mkono lingeweza kupita likiwa TSh 1.
-define('MIN_PAYOUT', 1000);
-define('MAX_PAYOUT', 5000000); // kikomo cha gateway (Dalipay)
+// ⚠️ Ada ya Snippe ya cash-out ni TSh 1,500 FLAT (siyo asilimia). Kikomo
+// cha zamani (TSh 1,000) kilikuwa kidogo kuliko ada yenyewe - mmiliki
+// angelipa 1,500 kutoa 1,000. Sasa ada ni 30% ya ombi dogo kabisa, na
+// inapungua kadri ombi linavyokuwa kubwa.
+define('MIN_PAYOUT', 5000);
+define('MAX_PAYOUT', 5000000); // kikomo cha juu cha ombi moja
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: index.php");
@@ -57,14 +61,17 @@ $stmt_user->close();
 // MUHIMU: tenganisha thamani HALISI na maandishi ya kuonyesha. Awali zote mbili
 // zilikuwa kitu kimoja, hivyo reseller asiye na namba alihifadhiwa maneno
 // 'Haujaweka namba' kwenye payout_requests.phone_number - na maneno hayo ndiyo
-// yaliyotumwa Dalipay kama namba ya mpokeaji.
+// yaliyotumwa gateway kama namba ya mpokeaji.
 $user_phone    = trim((string)($reseller['phone'] ?? ''));
 $phone_display = $user_phone !== '' ? $user_phone : 'Haujaweka namba';
 
-// Namba lazima iwe ya mtandao unaokubaliwa na gateway. Tunakagua HAPA ili
-// reseller ajue mara moja, badala ya ombi kushikilia salio lake kisha likwame
-// wakati admin anaidhinisha.
-$phone_provider = $user_phone !== '' ? dalipayProviderFromPhone($user_phone) : null;
+// Snippe hutuma pesa kwenda mitandao YOTE minne (Vodacom, Tigo/Yas,
+// Airtel, Halotel) na huutambua mtandao wenyewe kutoka namba - hivyo
+// hatutumi jina la provider popote.
+//
+// Ukaguzi huu unabakia kwa TTCL (073) na namba zisizo sahihi: reseller
+// ajue mara moja, badala ya ombi lake kushikilia salio kisha likwame.
+$phone_provider = $user_phone !== '' ? snippeNetworkName($user_phone) : null;
 
 // 2. Kuchakata Ombi la Cash Out
 $toast = null;
@@ -84,7 +91,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_cashout'])) {
     } elseif ($user_phone === '') {
         $toast = ['type' => 'error', 'msg' => 'Huna namba ya simu kwenye akaunti yako. Iweke kwenye Mipangilio kabla ya kuomba cash out. 🚫'];
     } elseif ($phone_provider === null) {
-        $toast = ['type' => 'error', 'msg' => 'Namba yako (' . htmlspecialchars($user_phone) . ') si ya mtandao unaopokea malipo. Tumia Vodacom, Tigo/Yas, Airtel au Halotel. 🚫'];
+        $toast = ['type' => 'error', 'msg' => 'Namba yako (' . htmlspecialchars($user_phone) . ') si ya mtandao unaopokea malipo. '
+                . 'Tumia Vodacom, Tigo/Yas, Airtel au Halotel. 🚫'];
     } else {
         // Ukaguzi WOTE wa salio (pamoja na lock dhidi ya maombi mawili ya
         // haraka) uko ndani ya requestRouterPayout(). Hakuna kukokotoa
@@ -597,7 +605,7 @@ $can_submit = $selected !== null
         </div>
         <div class="bal-amount">TSh <?php echo number_format($available, 2); ?></div>
         <div style="font-size:11px;color:var(--text-dim);margin-top:4px;">
-            Kiasi hiki tayari kimeshakatwa ada ya <?php echo PLATFORM_FEE_PERCENT; ?>%
+            Kimeshakatwa ada ya Snippe ya <?php echo GATEWAY_FEE_PERCENT; ?>% (Tech5G hatutozi chochote)
         </div>
 
         <div class="bal-breakdown">
@@ -606,7 +614,7 @@ $can_submit = $selected !== null
                 <span class="v">TSh <?php echo number_format($selected['gross'], 2); ?></span>
             </div>
             <div class="bal-cell">
-                <span class="k">Ada ya Muamala (<?php echo PLATFORM_FEE_PERCENT; ?>%)</span>
+                <span class="k">Ada ya Snippe (<?php echo GATEWAY_FEE_PERCENT; ?>%)</span>
                 <span class="v fee">− TSh <?php echo number_format($selected['fees'], 2); ?></span>
             </div>
             <div class="bal-cell">
@@ -646,6 +654,15 @@ $can_submit = $selected !== null
                         : 'Mtandao wa namba hii haupokei malipo. Tumia Vodacom, Tigo/Yas, Airtel au Halotel.'; ?>
                 </p>
             <?php endif; ?>
+
+            <p style="font-size:12px;color:var(--text-dim);margin:-6px 0 14px;line-height:1.6;">
+                <i class="fa-solid fa-circle-info"></i>
+                Snippe hutoza <strong>TSh <?php echo number_format(calculatePayoutFee()); ?></strong>
+                kwa kila cash-out. Utapokea kiasi <strong>kamili</strong> unachoomba;
+                ada inakatwa kwenye salio lako juu ya kiasi hicho.
+                <br>Mfano: ukiomba TSh 5,000 &rarr; unapokea TSh 5,000, salio linapungua
+                TSh <?php echo number_format(payoutTotalCost(5000)); ?>.
+            </p>
 
             <label>Kiwango Unachotaka Kutoa (TSh)</label>
             <input type="number" name="amount" min="<?php echo MIN_PAYOUT; ?>"
@@ -721,7 +738,7 @@ $can_submit = $selected !== null
                     <tr>
                         <th>Router</th>
                         <th>Gross</th>
-                        <th>Ada <?php echo PLATFORM_FEE_PERCENT; ?>%</th>
+                        <th>Ada <?php echo GATEWAY_FEE_PERCENT; ?>%</th>
                         <th>Inapatikana</th>
                     </tr>
                 </thead>

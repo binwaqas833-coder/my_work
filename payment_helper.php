@@ -3,11 +3,14 @@
  * payment_helper.php
  * -------------------------------------------------------------
  * Mantiki YA PAMOJA ya "malipo yamekamilika -> tengeneza voucher -> panda
- * MikroTik -> auto-login". Inaitwa na WATU WAWILI:
- *   1. dalipay_webhook.php      - gateway inatuambia malipo yamekamilika
- *   2. check_payment_status.php - poll ya ukurasa wa mteja (backstop, kwa
- *      sababu gateway HAIRUDII webhook ikishindwa kufika mara ya kwanza)
- * na pia retry_payment.php pale admin anapobonyeza "Kukamilisha".
+ * MikroTik -> auto-login". Inaitwa na WATATU:
+ *   1. snippe_webhook.php       - Snippe wanatuambia malipo yamekamilika
+ *   2. check_payment_status.php - poll ya ukurasa wa mteja (KINGA, endapo
+ *      webhook itapotea njiani)
+ *   3. retry_payment.php        - admin abonyeza "Kukamilisha"
+ *
+ * Ulinzi wa claimed_at ni MUHIMU: webhook na poll zinaweza kufika sekunde
+ * moja, na Snippe hujaribu webhook mara 5. Vocha inatengenezwa MARA MOJA tu.
  *
  * MUHIMU (MULTI-ROUTER): txn (payment_transactions) sasa ina router_id
  * yake yenyewe (iliyowekwa na lipia.php) - hii ndiyo chanzo cha ukweli
@@ -145,14 +148,15 @@ function completeVoucherPayment($conn, $transaction_id)
         $conn->query("UPDATE vouchers SET expiry_date = DATE_ADD(NOW(), INTERVAL $duration_days DAY), last_login_at = NOW() WHERE id = $voucher_db_id");
     }
 
-    // ── ADA YA 3.8% INAKOKOTOLEWA HAPA, MARA MOJA TU ──
+    // ── ADA YA SNIPPE (2.5%) INAKOKOTOLEWA HAPA, MARA MOJA TU ──
     // Hii ndiyo sehemu PEKEE inayogeuza gross kuwa net. cash_out.php
-    // inasoma net_amount hii kama ilivyo - HAIKATI 3.8% mara ya pili.
-    // (Angalia balance_helper.php kwa maelezo kamili.)
+    // inasoma net_amount hii kama ilivyo - HAIKATI asilimia mara ya pili.
+    // SIYO faida ya Tech5G: ni gharama halisi ya Snippe inayopitishwa
+    // kwa mmiliki wa router. (Angalia balance_helper.php.)
     $gross = (float)$txn['amount'];
     $fee   = calculateTransactionFee($gross);
     $net   = calculateNetAmount($gross);
-    $fee_p = PLATFORM_FEE_PERCENT;
+    $fee_p = GATEWAY_FEE_PERCENT;
 
     $u = $conn->prepare(
         "UPDATE payment_transactions
@@ -190,7 +194,7 @@ function markTransactionFailed($conn, $transaction_id, $reason)
 /**
  * Jaribu tena muamala uliokwama (button ya "Kukamilisha" kwenye
  * malipo_status.php). HAITUMII PESA MPYA - inadhania tayari umethibitisha
- * kwenye dashboard ya Dalipay kuwa mteja KWELI amelipa.
+ * kwenye dashboard ya Snippe kuwa mteja KWELI amelipa.
  *
  * Inafuta claimed_at kwanza: muamala unaweza kuwa umekwama kwa sababu
  * mchakato uliokuwa umeudai ulikufa katikati (mfano PHP timeout wakati

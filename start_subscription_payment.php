@@ -4,15 +4,15 @@
  * -------------------------------------------------------------
  * Sawa na lipia.php lakini kwa MALIPO YA SUBSCRIPTION (siyo vocha ya
  * mteja). Inatengeneza rekodi ya 'pending_payment', inaanzisha USSD Push
- * kupitia gateway ya Dalipay (au kuiiga ikiwa PAYMENT_MOCK_MODE imewashwa
- * kwa sababu hakuna keys), kisha inaonyesha ukurasa wa "kusubiri malipo"
+ * kupitia Snippe (au kuiiga ikiwa PAYMENT_MOCK_MODE imewashwa kwa sababu
+ * hakuna API key), kisha inaonyesha ukurasa wa "kusubiri malipo"
  * unaopiga poll kwenye check_subscription_status.php.
  * -------------------------------------------------------------
  */
 session_start();
 include 'login_signup.php';
 require_once 'subscription_helper.php';
-require_once 'dalipay_client.php';   // ISP Gateway ya Dalipay (malipo halisi)
+require_once 'snippe_client.php';   // Snippe (malipo halisi)
 require_once 'error_logger.php';
 
 if (!isset($_SESSION['user_id'])) {
@@ -43,7 +43,7 @@ if ($plan_id <= 0 || empty($phone)) {
 if (!preg_match('/^0[67]\d{8}$/', $phone)) {
     onyeshaHitilafu("Namba ya simu '$phone' si sahihi. Tumia muundo: 07XXXXXXXX.");
 }
-if (dalipayProviderFromPhone($phone) === null) {
+if (snippeNetworkName($phone) === null) {
     onyeshaHitilafu("Mtandao wa namba '$phone' hauwezi kutumika kwa malipo. Tumia Vodacom, Tigo/Yas, Airtel au Halotel.");
 }
 
@@ -61,7 +61,12 @@ $transaction_id = createPendingSubscriptionPayment($conn, $my_id, $plan_id);
 
 // ── ANZISHA MALIPO HALISI KWENYE GATEWAY (USSD prompt kwenye simu) ──
 if (!PAYMENT_MOCK_MODE) {
-    $malipo = dalipayCreateCollection($phone, (float)$plan['price'], $transaction_id, $_SESSION['username'] ?? '');
+    // Hapa TUNA taarifa halisi za reseller (jina + barua pepe), tofauti
+    // na mteja wa hotspot ambaye hutupa namba tu.
+    $malipo = snippeCreatePayment(
+        $phone, (float)$plan['price'], $transaction_id,
+        $_SESSION['username'] ?? '', $_SESSION['email'] ?? ''
+    );
 
     if (!$malipo['ok']) {
         markSubscriptionPaymentFailed($conn, $transaction_id, $malipo['error']);
@@ -74,7 +79,7 @@ if (!PAYMENT_MOCK_MODE) {
     $g = $conn->prepare(
         "UPDATE subscriptions SET gateway_uuid=?, gateway_reference=? WHERE payment_transaction_id=?"
     );
-    $g->bind_param("sss", $malipo['uuid'], $malipo['reference'], $transaction_id);
+    $g->bind_param("sss", $malipo['reference'], $malipo['reference'], $transaction_id);
     $g->execute();
     $g->close();
 }

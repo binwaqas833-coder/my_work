@@ -2,7 +2,7 @@
 /**
  * payout_helper.php
  * ------------------------------------------------------------------
- * KUTOA PESA (cash-out ya reseller) kupitia Dalipay Disbursements API.
+ * KUTOA PESA (cash-out ya reseller) kupitia Snippe Payouts API.
  *
  * Mtiririko kamili:
  *   1. cash_out.php   - reseller anaomba kwa ROUTER MOJA. Ombi lenyewe
@@ -10,10 +10,20 @@
  *                       inalipunguza kwenye salio la router hiyo mara moja),
  *                       ombi linakuwa 'pending'.
  *   2. admin.php      - admin abonyeza "Thibitisha" -> sendPayoutToGateway()
- *                       inaituma Dalipay. Hali inakuwa 'awaiting_approval'.
- *   3. Dalipay        - operator wao anaidhinisha, kisha pesa inatumwa.
- *   4. poll_payouts.php (cron) - inauliza hali kila baada ya muda mpaka
- *                       'success' au 'failed'/'rejected'.
+ *                       inaituma Snippe. Hali inakuwa 'awaiting_approval'.
+ *   3. Snippe         - wanachakata malipo kwenda mtandao wa mpokeaji.
+ *   4. snippe_webhook.php (haraka) + poll_payouts.php (cron, kinga) -
+ *                       zinathibitisha hali mpaka 'success' au 'failed'.
+ *
+ * MITANDAO: Snippe hutambua mtandao WENYEWE kutoka namba ya simu, hivyo
+ * hatutumi jina la provider. Mitandao yote minne (Vodacom, Tigo/Yas,
+ * Airtel, Halotel) inafanya kazi - ikiwemo Vodacom, ambayo gateway
+ * iliyotangulia haikuweza kuilipa.
+ *
+ * ⚠️ ADA YA SNIPPE: Snippe hukata KIASI + ADA YAO kwenye salio LETU la
+ * merchant. Ada hiyo ni ya kwetu kubeba - reseller anapokea kiasi kamili
+ * alichoomba. Hivyo salio letu la Snippe lazima liwe kubwa kuliko jumla
+ * ya maombi yanayosubiri.
  *
  * KANUNI YA MSINGI YA PESA ZINAZOTOKA: kamwe usirudishe salio ikiwa
  * HUJUI hali halisi ya malipo. Kurudisha salio kimakosa kunamaanisha
@@ -22,7 +32,7 @@
  * ------------------------------------------------------------------
  */
 
-require_once __DIR__ . '/dalipay_client.php';
+require_once __DIR__ . '/snippe_client.php';
 require_once __DIR__ . '/error_logger.php';
 
 /**
@@ -76,7 +86,7 @@ function refundPayout($conn, int $payout_id, string $status, string $reason): bo
 }
 
 /**
- * Tuma ombi la cash-out kwenye Dalipay. Inaitwa na admin.php baada ya
+ * Tuma ombi la cash-out kwenye Snippe. Inaitwa na admin.php baada ya
  * admin kuidhinisha.
  *
  * @return array ['ok'=>bool, 'status'=>string, 'message'=>string]
@@ -120,7 +130,10 @@ function sendPayoutToGateway($conn, int $payout_id, int $admin_id): array
     }
 
     // ── 3. Ituma ──
-    $res = dalipayCreateDisbursement(
+    // external_id inatumika pia kama Idempotency-Key ya Snippe: hata kama
+    // ombi hili litatumwa mara mbili (mfano timeout kisha jaribio jipya),
+    // Snippe hulipa MARA MOJA tu.
+    $res = snippeCreatePayout(
         $po['phone_number'],
         (float)$po['amount'],
         $external_id,
@@ -132,43 +145,45 @@ function sendPayoutToGateway($conn, int $payout_id, int $admin_id): array
         $g = $conn->prepare(
             "UPDATE payout_requests SET gateway_uuid=?, gateway_reference=?, updated_at=NOW() WHERE id=?"
         );
-        $g->bind_param("ssi", $res['uuid'], $res['reference'], $payout_id);
+        $g->bind_param("ssi", $res['reference'], $res['reference'], $payout_id);
         $g->execute();
         $g->close();
 
+        $ada = $res['fee'] !== null
+             ? ' (ada ya Snippe: TSh ' . number_format($res['fee']) . ' - inatoka kwetu, siyo kwa reseller)'
+             : '';
+
         return ['ok' => true, 'status' => 'awaiting_approval',
-                'message' => 'Ombi limetumwa Dalipay na linasubiri idhini yao. Pesa BADO haijatumwa.'];
+                'message' => 'Ombi limetumwa Snippe na linachakatwa. Pesa BADO haijathibitishwa kufika.' . $ada];
     }
 
     // ── 4. Imeshindikana: tofautisha "imekataliwa" na "hatujui" ──
-    $http = (int)($res['http'] ?? 0);
-
-    // 4a. Ombi HALIKUWAHI kuondoka kwenye seva yetu (ukaguzi wa hapa nyumbani
-    // umelizuia: mtandao wa simu hauruhusiwi, kiasi nje ya mipaka, n.k.).
-    // Tunajua KWA UHAKIKA hakuna malipo yaliyoanzishwa -> rudisha salio mara moja.
-    // Bila hii, ombi lilikwama 'awaiting_approval' na salio la reseller likashikiliwa
-    // milele, huku admin akiambiwa akague Dalipay kwa ombi ambalo hawakuwahi kulipokea.
-    if (($res['sent'] ?? true) === false) {
+    //
+    // Hii ndiyo sehemu nyeti kuliko zote. Kurudisha salio kimakosa
+    // kunamaanisha reseller ana pesa yake mkononi NA salio lake bado lipo.
+    //
+    // 'definitive' inatoka snippe_client.php: Snippe walipokea ombi na
+    // wakalikataa kwa uamuzi (jibu lao lina error_code), hivyo HAKUNA
+    // PESA ILIYOSONGA -> ni salama kurudisha salio.
+    //
+    // MUHIMU: hatutegemei msimbo wa HTTP hapa. Snippe hurudisha 500 kwa
+    // "insufficient balance" - hiyo ni 500 YENYE UAMUZI. Kanuni ya zamani
+    // ya "4xx = imekataliwa, 5xx = hatujui" ingelishikilia salio la
+    // reseller milele kwa hitilafu ya kawaida kabisa ya salio letu.
+    if ($res['definitive']) {
         refundPayout($conn, $payout_id, 'failed', $res['error']);
-        logSystemError($conn, 'payout_helper.php', 'Disbursement imezuiwa kabla ya kutumwa: ' . $res['error'],
-            ['user_id' => (int)$po['user_id'], 'context' => ['payout_id' => $payout_id]]);
+        logSystemError($conn, 'payout_helper.php', 'Cash-out imekataliwa: ' . $res['error'],
+            ['user_id' => (int)$po['user_id'],
+             'context' => ['payout_id' => $payout_id, 'http' => (int)($res['http'] ?? 0),
+                           'ilitumwa' => (bool)($res['sent'] ?? false)]]);
         return ['ok' => false, 'status' => 'failed',
-                'message' => $res['error'] . ' (salio limerudishwa - hakuna ombi lililotumwa)'];
+                'message' => $res['error'] . ' (salio limerudishwa - hakuna pesa iliyotoka)'];
     }
 
-    if ($http >= 400 && $http < 500) {
-        // Gateway imekataa kwa uhakika (mfano salio la merchant halitoshi,
-        // namba si sahihi, KYC). Hakuna malipo yaliyoanzishwa -> rudisha salio.
-        refundPayout($conn, $payout_id, 'failed', $res['error']);
-        logSystemError($conn, 'payout_helper.php', 'Disbursement imekataliwa: ' . $res['error'],
-            ['user_id' => (int)$po['user_id'], 'context' => ['payout_id' => $payout_id, 'http' => $http]]);
-        return ['ok' => false, 'status' => 'failed',
-                'message' => 'Imekataliwa na gateway: ' . $res['error'] . ' (salio limerudishwa)'];
-    }
-
-    // Mtandao umekatika / 5xx: HATUJUI kama malipo yameanzishwa.
-    // Usirudishe salio. Ombi linabaki 'awaiting_approval' likisubiri ukaguzi.
-    $note = 'HALI HAIJULIKANI - kagua dashboard ya Dalipay kabla ya kujaribu tena: ' . $res['error'];
+    // Mtandao umekatika au jibu halikueleweka: HATUJUI kama malipo
+    // yameanzishwa. Usirudishe salio. Ombi linabaki 'awaiting_approval'
+    // likisubiri ukaguzi - na poll_payouts.php itaendelea kuuliza.
+    $note = 'HALI HAIJULIKANI - kagua dashboard ya Snippe kabla ya kujaribu tena: ' . $res['error'];
     $u = $conn->prepare("UPDATE payout_requests SET fail_reason=?, updated_at=NOW() WHERE id=?");
     $nt = mb_substr($note, 0, 255);
     $u->bind_param("si", $nt, $payout_id);
@@ -180,7 +195,7 @@ function sendPayoutToGateway($conn, int $payout_id, int $admin_id): array
 
     return ['ok' => false, 'status' => 'awaiting_approval',
             'message' => 'Mawasiliano na gateway yamekatika. Salio HALIJARUDISHWA kwa makusudi - '
-                       . 'kagua Dalipay kama malipo yameanzishwa (rejea: ' . $external_id . ').'];
+                       . 'kagua Snippe kama malipo yameanzishwa (rejea: ' . $external_id . ').'];
 }
 
 /**
@@ -195,7 +210,7 @@ function pollPayoutStatus($conn, array $payout): string
         return 'awaiting_approval'; // haikuwahi kufika gateway - ukaguzi wa mkono
     }
 
-    $hali = dalipayDisbursementStatus($payout['gateway_reference']);
+    $hali = snippePayoutStatus($payout['gateway_reference']);
     if (!$hali['ok']) {
         return 'awaiting_approval'; // hitilafu ya mtandao - jaribu tena baadaye
     }
@@ -210,13 +225,44 @@ function pollPayoutStatus($conn, array $payout): string
         return 'success';
     }
 
-    if ($hali['status'] === 'failed' || $hali['status'] === 'rejected') {
-        // Dalipay hurudisha pesa kwenye salio LETU la merchant; sisi
-        // tunarudisha kwenye salio la reseller ndani ya mfumo wetu.
-        refundPayout($conn, $id, $hali['status'],
-            $hali['status'] === 'rejected' ? 'Imekataliwa na Dalipay.' : 'Malipo yameshindikana Dalipay.');
-        return $hali['status'];
+    if ($hali['status'] === 'failed') {
+        // Snippe hurudisha pesa kwenye salio LETU la merchant kiotomatiki;
+        // sisi tunarudisha kwenye salio la reseller ndani ya mfumo wetu.
+        refundPayout($conn, $id, 'failed', 'Malipo yameshindikana Snippe.');
+        return 'failed';
     }
 
     return 'awaiting_approval';
+}
+
+/**
+ * Mjulishe reseller kuwa pesa IMEFIKA kweli.
+ *
+ * Iko hapa (siyo ndani ya poll_payouts.php) kwa sababu njia MBILI sasa
+ * zinaweza kukamilisha ombi: cron na snippe_webhook.php.
+ * Ujumbe ni mmoja, sehemu moja.
+ */
+function payoutNotifyResellerSuccess($conn, int $user_id, float $amount): bool
+{
+    $u = $conn->prepare("SELECT email, username FROM users WHERE id = ? LIMIT 1");
+    $u->bind_param("i", $user_id);
+    $u->execute();
+    $mtu = $u->get_result()->fetch_assoc();
+    $u->close();
+
+    if (!$mtu || empty($mtu['email'])) {
+        return false;
+    }
+
+    require_once __DIR__ . '/email_helper.php';
+
+    return (bool)sendStatusEmail(
+        $mtu['email'],
+        $mtu['username'],
+        'Pesa Yako Imetumwa! 💸',
+        'Habari <strong>' . htmlspecialchars($mtu['username'], ENT_QUOTES) . '</strong>,<br><br>'
+        . 'Cash Out yako ya <strong>TSh ' . number_format($amount, 2) . '</strong> '
+        . 'imetumwa kikamilifu kwenye namba yako ya simu.<br><br>'
+        . 'Asante kwa kuendelea kufanya kazi na Tech 5G!'
+    );
 }

@@ -2,10 +2,10 @@
 /**
  * lipia.php
  * -------------------------------------------------------------
- * Inapokea fomu kutoka index_backup.php, inaanzisha malipo kupitia gateway ya
- * Dalipay, na kuhifadhi rekodi ya "pending" kwenye payment_transactions.
- * (Bila keys za Dalipay mfumo hurudi MOCK - angalia PAYMENT_MOCK_MODE
- * kwenye config.php. AzamPay HAITUMIKI hapa; ni jina la zamani tu.)
+ * Inapokea fomu kutoka index_backup.php, inaanzisha malipo kupitia
+ * Snippe, na kuhifadhi rekodi ya "pending" kwenye payment_transactions.
+ * (Bila SNIPPE_API_KEY mfumo hurudi MOCK - angalia PAYMENT_MOCK_MODE
+ * kwenye config.php.)
  *
  * MUHIMU (MULTI-ROUTER): sasa inapokea router_id pia (siyo user_id peke
  * yake) - tariff HALISI (chanzo cha ukweli) inatafutwa kwa router_id,
@@ -20,7 +20,7 @@
 session_start();
 include 'login_signup.php';
 require_once 'payment_helper.php';
-require_once 'dalipay_client.php';   // ISP Gateway ya Dalipay (malipo halisi)
+require_once 'snippe_client.php';   // Snippe (malipo halisi)
 
 // ── 1. POKEA DATA KUTOKA FOMU YA index_backup.php ──
 $package_type = strtolower(trim($_POST['package_type'] ?? ''));
@@ -52,10 +52,10 @@ if (!preg_match('/^0[67]\d{8}$/', $namba_simu)) {
     onyeshaUkurasaWaHitilafu("Namba ya simu '$namba_simu' si sahihi. Tumia muundo: 07XXXXXXXX.");
 }
 
-// Gateway inakubali Vodacom, Tigo/Yas, Airtel na Halotel pekee. Tunakagua
-// HAPA (kabla ya kutengeneza rekodi yoyote) ili mteja wa TTCL apate ujumbe
+// Snippe inakubali Vodacom, Tigo/Yas, Airtel na Halotel. Tunakagua HAPA
+// (kabla ya kutengeneza rekodi yoyote) ili mteja wa TTCL apate ujumbe
 // wazi mara moja, badala ya muamala kukwama kama 'failed' bila maelezo.
-if (dalipayProviderFromPhone($namba_simu) === null) {
+if (snippeNetworkName($namba_simu) === null) {
     onyeshaUkurasaWaHitilafu("Mtandao wa namba '$namba_simu' hauwezi kutumika kwa malipo kwa sasa. Tafadhali tumia namba ya Vodacom, Tigo/Yas, Airtel au Halotel.");
 }
 
@@ -81,6 +81,13 @@ if (!$tariff) {
 }
 $price = (float)$tariff['price'];
 
+// Snippe haikubali kiasi chini ya SNIPPE_MIN_AMOUNT (TSh 500). Tariff
+// ya bei ndogo kuliko hapo haiwezi kulipiwa - mwambie mteja mapema
+// badala ya kumuacha aanzishe muamala utakaokataliwa.
+if (!PAYMENT_MOCK_MODE && $price < SNIPPE_MIN_AMOUNT) {
+    onyeshaUkurasaWaHitilafu("Kifurushi hiki (TSh " . number_format($price) . ") kiko chini ya kiwango cha chini cha malipo (TSh " . number_format(SNIPPE_MIN_AMOUNT) . "). Tafadhali chagua kifurushi kingine.");
+}
+
 // ── 5. TENGENEZA REJEA YA KIPEKEE YA TRANSACTION ──
 $transaction_id = 'TXN-' . strtoupper(bin2hex(random_bytes(6)));
 
@@ -96,13 +103,13 @@ $ins->close();
 // ── 7. ANZISHA MALIPO HALISI KWENYE GATEWAY (USSD prompt kwenye simu) ──
 // Rekodi ya 'pending' tayari ipo hapo juu KABLA ya ombi hili kwa makusudi:
 // kama gateway itapokea ombi lakini jibu lipotee njiani (timeout), tunataka
-// bado tuwe na rekodi yenye external_id ile ile ambayo webhook itaitambua.
+// bado tuwe na rekodi yenye external_id ile ile ambayo callback itaitambua.
 if (!PAYMENT_MOCK_MODE) {
-    $malipo = dalipayCreateCollection($namba_simu, $price, $transaction_id);
+    $malipo = snippeCreatePayment($namba_simu, $price, $transaction_id);
 
     if (!$malipo['ok']) {
         markTransactionFailed($conn, $transaction_id, $malipo['error']);
-        logSystemError($conn, 'lipia.php', 'Kuanzisha collection kumeshindikana: ' . $malipo['error'], [
+        logSystemError($conn, 'lipia.php', 'Kuanzisha malipo kumeshindikana: ' . $malipo['error'], [
             'user_id'   => $user_id,
             'router_id' => $router_id,
             'context'   => ['transaction_id' => $transaction_id, 'phone' => $namba_simu],
@@ -110,13 +117,13 @@ if (!PAYMENT_MOCK_MODE) {
         onyeshaUkurasaWaHitilafu("Imeshindikana kuanzisha malipo: " . $malipo['error']);
     }
 
-    // Hifadhi vitambulisho vya gateway - uuid ndiyo tunayotumia kuuliza
-    // hali ya malipo (check_payment_status.php), na reference ndiyo namba
-    // ya kunukuu ukiwasiliana na Dalipay kuhusu muamala huu.
+    // Hifadhi reference ya Snippe. TOFAUTI na gateway iliyotangulia, hii
+    // INATUMIKA: check_payment_status.php huitumia kuuliza hali moja kwa
+    // moja, hivyo webhook ikipotea mteja bado anaunganishwa.
     $g = $conn->prepare(
         "UPDATE payment_transactions SET gateway_uuid=?, gateway_reference=? WHERE transaction_id=?"
     );
-    $g->bind_param("sss", $malipo['uuid'], $malipo['reference'], $transaction_id);
+    $g->bind_param("sss", $malipo['reference'], $malipo['reference'], $transaction_id);
     $g->execute();
     $g->close();
 }
@@ -197,4 +204,4 @@ function onyeshaHitilafu(ujumbe) {
 setTimeout(angaliaHaliYaMalipo, 2000);
 </script>
 </body>
-</html>pay
+</html>

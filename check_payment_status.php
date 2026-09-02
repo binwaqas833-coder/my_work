@@ -4,15 +4,19 @@
  * ------------------------------------------------------------------
  * Inapigwa poll na JS ya lipia.php kila sekunde 3 mpaka malipo yaishe.
  *
- * KAZI YAKE HALISI: kuuliza gateway "je mteja amekubali USSD prompt?",
+ * KAZI YAKE HALISI: kuuliza Snippe "je mteja amekubali USSD prompt?",
  * na malipo yakithibitika, kuita completeVoucherPayment() itakayotengeneza
  * vocha na kumuunganisha mteja.
  *
- * KWA NINI POLL WAKATI KUNA WEBHOOK? Dalipay HAIRUDII webhook ikishindwa
- * kufika mara ya kwanza (hakuna retry). Poll hii ndiyo kinga: hata kama
- * webhook haikufika kabisa, mteja aliyesimama pale bado anaunganishwa.
- * Kama zote mbili zikifika kwa pamoja, ulinzi wa claimed_at ndani ya
+ * KWA NINI POLL WAKATI KUNA WEBHOOK? Webhook inaweza kupotea (mtandao,
+ * seva ilikuwa busy, firewall). Poll hii ndiyo KINGA: hata kama webhook
+ * haikufika kabisa, mteja aliyesimama pale bado anaunganishwa. Kama zote
+ * mbili zikifika kwa pamoja, ulinzi wa claimed_at ndani ya
  * payment_helper.php unahakikisha vocha inatengenezwa MARA MOJA tu.
+ *
+ * (Gateway iliyotangulia - AzamPay - haikuwa na API ya kuuliza hali,
+ * hivyo kinga hii haikuwepo kwa muda. Snippe wanayo: GET /v1/payments/
+ * {reference}.)
  *
  * Ukurasa huu ni WA UMMA (mteja hajalogin) - ulinzi wake ni kwamba
  * transaction_id ni ya nasibu (random) na haiwezi kubahatishwa.
@@ -22,7 +26,7 @@
 session_start();
 include 'login_signup.php';
 require_once 'payment_helper.php';
-require_once 'dalipay_client.php';
+require_once 'snippe_client.php';
 
 header('Content-Type: application/json');
 
@@ -37,7 +41,7 @@ if ($ref === '') {
 }
 
 $stmt = $conn->prepare(
-    "SELECT transaction_id, status, voucher_code, gateway_uuid, fail_reason, created_at
+    "SELECT transaction_id, status, voucher_code, gateway_reference, fail_reason, created_at
      FROM payment_transactions WHERE transaction_id = ? LIMIT 1"
 );
 $stmt->bind_param("s", $ref);
@@ -57,7 +61,7 @@ if ($txn['status'] === 'failed') {
     jibu(['status' => 'failed', 'message' => $txn['fail_reason'] ?: 'Malipo yameshindikana.']);
 }
 
-// ── MOCK (development bila keys): jikamilishe baada ya sekunde chache ──
+// ── MOCK (development bila API key): jikamilishe baada ya sekunde chache ──
 if (PAYMENT_MOCK_MODE) {
     if ((time() - strtotime($txn['created_at'])) >= PAYMENT_MOCK_DELAY_SECONDS) {
         $res = completeVoucherPayment($conn, $ref);
@@ -66,15 +70,15 @@ if (PAYMENT_MOCK_MODE) {
     jibu(['status' => 'pending']);
 }
 
-// ── HALISI: uliza gateway hali ya collection ──
-if (empty($txn['gateway_uuid'])) {
+// ── HALISI: uliza Snippe hali ya malipo ──
+if (empty($txn['gateway_reference'])) {
     // Ombi la kuanzisha malipo halikufanikiwa kabisa (mfano gateway ilikuwa
-    // chini wakati wa lipia.php). Hakuna cha kuuliza - subiri tu, admin
-    // anaweza kutumia "Kukamilisha" endapo pesa ilitoka kweli.
+    // chini wakati wa lipia.php). Hakuna cha kuuliza - subiri webhook, au
+    // admin atumie "Kukamilisha" endapo pesa ilitoka kweli.
     jibu(['status' => 'pending']);
 }
 
-$hali = dalipayCollectionStatus($txn['gateway_uuid']);
+$hali = snippePaymentStatus($txn['gateway_reference']);
 
 if (!$hali['ok']) {
     // Hitilafu ya mtandao kwenda gateway SIYO sawa na malipo kushindikana -
@@ -92,5 +96,5 @@ if ($hali['status'] === 'failed') {
     jibu(['status' => 'failed', 'message' => 'Malipo hayakukamilika. Hakikisha una salio kisha jaribu tena.']);
 }
 
-// bado 'processing' - mteja hajagusa prompt kwenye simu yake
+// bado 'pending' - mteja hajagusa prompt kwenye simu yake
 jibu(['status' => 'pending']);

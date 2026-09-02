@@ -7,7 +7,7 @@
  * Matumizi: muamala umekwama - mfano mteja alilipa kweli lakini router
  * ilikuwa chini wakati huo, au webhook haikufika na mteja alifunga tab
  * kabla poll haijamaliza. Reseller/admin anathibitisha kwenye dashboard
- * ya Dalipay kuwa pesa ilitoka, kisha anabonyeza button hii.
+ * ya Snippe kuwa pesa ilitoka, kisha anabonyeza button hii.
  *
  * HAITUMII PESA MPYA - inatengeneza tu vocha ya malipo yaliyokwisha
  * kufanyika.

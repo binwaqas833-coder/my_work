@@ -4,14 +4,17 @@
  * -------------------------------------------------------------
  * Inapigwa poll na JS ya start_subscription_payment.php kila
  * sekunde 3. Sawa kabisa na check_payment_status.php (vocha), lakini
- * kwa malipo ya subscription: inauliza gateway kama reseller amekubali
+ * kwa malipo ya subscription: inauliza Snippe kama reseller amekubali
  * USSD prompt, kisha inaita completeSubscriptionPayment().
+ *
+ * Kama check_payment_status.php, poll hii ni KINGA dhidi ya webhook
+ * inayopotea.
  * -------------------------------------------------------------
  */
 session_start();
 include 'login_signup.php';
 require_once 'subscription_helper.php';
-require_once 'dalipay_client.php';
+require_once 'snippe_client.php';
 header('Content-Type: application/json');
 
 $ref = trim($_GET['ref'] ?? '');
@@ -20,7 +23,7 @@ if ($ref === '') {
     exit();
 }
 
-$stmt = $conn->prepare("SELECT id, user_id, status, starts_at, gateway_uuid FROM subscriptions WHERE payment_transaction_id = ? LIMIT 1");
+$stmt = $conn->prepare("SELECT id, user_id, status, starts_at, gateway_reference FROM subscriptions WHERE payment_transaction_id = ? LIMIT 1");
 $stmt->bind_param("s", $ref);
 $stmt->execute();
 $row = $stmt->get_result()->fetch_assoc();
@@ -43,7 +46,7 @@ if ($row['status'] === 'expired') {
 
 // ── bado 'pending_payment' ──
 
-// MOCK (development bila keys): jikamilishe baada ya sekunde chache
+// MOCK (development bila API key): jikamilishe baada ya sekunde chache
 if (PAYMENT_MOCK_MODE) {
     if ((time() - strtotime($row['starts_at'])) >= PAYMENT_MOCK_DELAY_SECONDS) {
         echo json_encode(completeSubscriptionPayment($conn, $ref));
@@ -53,13 +56,13 @@ if (PAYMENT_MOCK_MODE) {
     exit();
 }
 
-// HALISI: uliza gateway
-if (empty($row['gateway_uuid'])) {
+// HALISI: uliza Snippe
+if (empty($row['gateway_reference'])) {
     echo json_encode(['status' => 'pending']);
     exit();
 }
 
-$hali = dalipayCollectionStatus($row['gateway_uuid']);
+$hali = snippePaymentStatus($row['gateway_reference']);
 
 if (!$hali['ok']) {
     // Hitilafu ya mtandao SIYO malipo kushindikana - jaribu tena poll ijayo.

@@ -4,7 +4,7 @@ include 'login_signup.php';
 require_once 'routeros_api.class.php';
 require_once 'mikrotik_helper.php';     // helper mpya (mysqli version)
 require_once 'subscription_helper.php'; // startTrialSubscription(), n.k.
-require_once 'payout_helper.php';       // sendPayoutToGateway() - kutoa pesa Dalipay
+require_once 'payout_helper.php';       // sendPayoutToGateway() - kutoa pesa Snippe
 
 // ── SESSION TIMEOUT (dakika 15) ──
 $timeout = 900;
@@ -150,14 +150,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
         mysqli_stmt_close($stmt_user);
 
         if ($reseller) {
-            // Ituma KWELI kwenye Dalipay. sendPayoutToGateway() ndiyo inayodai
+            // Ituma KWELI kwenye Snippe. sendPayoutToGateway() ndiyo inayodai
             // ombi kwa njia ya atomic, hivyo bofya-mara-mbili hakuwezi kutuma
             // malipo mawili. Salio lilishakatwa wakati reseller aliomba.
             $po = sendPayoutToGateway($conn, (int)$id, (int)$_SESSION['user_id']);
 
             if ($po['ok']) {
-                // Barua pepe YA UKWELI: pesa BADO haijafika. Dalipay wanapaswa
-                // kuidhinisha kwanza. Awali ujumbe ulisema "malipo yamekamilika"
+                // Barua pepe YA UKWELI: pesa BADO haijathibitishwa kufika.
+                // Snippe wanachakata kwanza; snippe_webhook.php / poll_payouts.php
+                // ndizo zinazothibitisha. Awali ujumbe ulisema "malipo yamekamilika"
                 // jambo ambalo halikuwa kweli hata kabla ya API kuunganishwa.
                 $email_sent = false;
                 if (!empty($reseller['email'])) {
@@ -176,7 +177,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
 
                 echo json_encode([
                     'status' => 'success',
-                    'msg'    => 'Imepelekwa Dalipay ✅ — inasubiri idhini yao. Pesa BADO haijatumwa.'
+                    'msg'    => $po['message']
                               . ($email_sent ? ' Barua pepe imetumwa.' : ' (barua pepe haikutumwa)'),
                     'email_sent' => $email_sent,
                 ]);

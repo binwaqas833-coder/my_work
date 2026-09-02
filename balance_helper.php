@@ -3,26 +3,43 @@
  * balance_helper.php
  * ------------------------------------------------------------------
  * CHANZO KIMOJA CHA UKWELI (single source of truth) cha:
- *   • ada ya muamala (3.8%)
+ *   • ada za gateway (Snippe) zinazopitishwa kwa mmiliki
  *   • kiasi halisi anachomiliki reseller/admin (net)
  *   • salio linaloweza kutolewa (available) kwa KILA ROUTER
  *
+ * ── ADA: TECH5G HAITOZI CHOCHOTE ──
+ * Ada zote hapa ni za SNIPPE, zinazopitishwa kwa mmiliki wa router
+ * kama zilivyo. Tech5G haiongezi senti juu yake wala haichukui sehemu.
+ * Ndiyo maana namba hizi LAZIMA zilingane na zile za Snippe:
+ *
+ *   Kuingiza (malipo):  2.50% ya kiasi
+ *   Kutoa (cash-out):   TSh 1,500 FLAT kwa ombi
+ *
+ * Zikibadilika upande wa Snippe, badilisha HAPA - siyo mahali pengine.
+ *
  * KANUNI KUU
  * ----------
- * 1. Ada inakokotolewa MARA MOJA TU - wakati muamala unapokamilika
- *    (payment_helper.php::completeVoucherPayment). Inahifadhiwa kwenye
- *    payment_transactions.fee_amount / net_amount.
+ * 1. Ada ya kuingiza inakokotolewa MARA MOJA TU - wakati muamala
+ *    unapokamilika (payment_helper.php::completeVoucherPayment).
+ *    Inahifadhiwa kwenye payment_transactions.fee_amount / net_amount.
  *
- * 2. Cash-out HAIKATI 3.8% tena. Inatumia net_amount iliyohifadhiwa.
- *    Kama ukiona 3.8% ikikokotolewa mahali pengine popote nje ya
+ * 2. Cash-out HAIKATI asilimia tena. Inatumia net_amount iliyohifadhiwa.
+ *    Kama ukiona asilimia ikikokotolewa mahali pengine popote nje ya
  *    calculateTransactionFee() hapa chini - ni hitilafu.
+ *
+ * 2b. ADA YA KUTOA (TSh 1,500) ni FLAT, hivyo haiwezi kutoka kwenye
+ *    asilimia. Inahifadhiwa kwenye payout_requests.fee_amount na
+ *    inashikiliwa PAMOJA na kiasi: mmiliki anayeomba TSh 5,000 anaona
+ *    salio lake likipungua TSh 6,500, na mpokeaji anapata TSh 5,000
+ *    kamili. Ombi likishindikana, VYOTE viwili vinarudi vyenyewe
+ *    (hali inabadilika tu - hakuna "refund" ya kuongeza column).
  *
  * 3. Salio HALIHIFADHIWI kwenye column yoyote (users.balance HAITUMIKI
  *    tena). Linakokotolewa kila linapohitajika:
  *
  *        available(router) = SUM(net_amount ya malipo 'completed' ya router hii)
- *                          - SUM(amount ya maombi ya cash-out ya router hii
- *                                yasiyo 'failed'/'rejected')
+ *                          - SUM(amount + fee_amount ya maombi ya cash-out
+ *                                ya router hii yasiyo 'failed'/'rejected')
  *
  *    Faida za kukokotoa badala ya kuhifadhi:
  *      • muamala mmoja hauwezi kutolewa mara mbili - ombi lililopo tayari
@@ -34,8 +51,21 @@
  * ------------------------------------------------------------------
  */
 
-/** Asilimia ya ada ya muamala. HII NDIYO SEHEMU PEKEE inayoifafanua. */
-const PLATFORM_FEE_PERCENT = 3.8;
+/**
+ * Ada ya Snippe kwa malipo yanayoingia (%). HII NDIYO SEHEMU PEKEE
+ * inayoifafanua. SIYO faida ya Tech5G - ni gharama halisi ya Snippe
+ * inayopitishwa kwa mmiliki wa router.
+ */
+const GATEWAY_FEE_PERCENT = 2.5;
+
+/**
+ * Ada ya Snippe kwa kila cash-out (TSh, FLAT - siyo asilimia).
+ *
+ * ⚠️ KWA SABABU NI FLAT, ombi dogo linaumia sana: TSh 1,500 kwenye ombi
+ * la TSh 5,000 ni 30%. Ndiyo maana MIN_PAYOUT (cash_out.php) ni kubwa
+ * kuliko ada hii kwa mara kadhaa. Usishushe MIN_PAYOUT karibu na 1,500.
+ */
+const GATEWAY_PAYOUT_FEE = 1500.0;
 
 /**
  * Hali za ombi la cash-out zinazoendelea KUSHIKILIA pesa.
@@ -51,7 +81,19 @@ function payoutHoldingStatuses(): array
 /** Ada ya 3.8% ya kiasi kilicholipwa na mteja (gross). */
 function calculateTransactionFee(float $gross): float
 {
-    return round($gross * PLATFORM_FEE_PERCENT / 100, 2);
+    return round($gross * GATEWAY_FEE_PERCENT / 100, 2);
+}
+
+/** Ada ya Snippe kwa ombi moja la cash-out (flat). */
+function calculatePayoutFee(): float
+{
+    return GATEWAY_PAYOUT_FEE;
+}
+
+/** Jumla itakayokatwa kwenye salio ili mpokeaji apate $amount kamili. */
+function payoutTotalCost(float $amount): float
+{
+    return round($amount + calculatePayoutFee(), 2);
 }
 
 /** Kiasi halisi anachomiliki reseller/admin baada ya ada kukatwa. */
@@ -138,8 +180,11 @@ function getOwnerRouterBalances($conn, int $user_id): array
 
     $p = $conn->prepare(
         "SELECT router_id,
-                COALESCE(SUM(CASE WHEN status = 'success' THEN amount ELSE 0 END), 0) AS paid_out,
-                COALESCE(SUM(CASE WHEN status <> 'success' THEN amount ELSE 0 END), 0) AS held
+                -- kiasi + ada ya Snippe: ndicho kinachotoka kwenye salio kweli.
+                -- COALESCE(fee_amount,0) inalinda rekodi za zamani (kabla ya
+                -- column hii kuwepo) zisihesabike kama NULL.
+                COALESCE(SUM(CASE WHEN status =  'success' THEN amount + COALESCE(fee_amount,0) ELSE 0 END), 0) AS paid_out,
+                COALESCE(SUM(CASE WHEN status <> 'success' THEN amount + COALESCE(fee_amount,0) ELSE 0 END), 0) AS held
            FROM payout_requests
           WHERE user_id = ? AND status IN ($place)
           GROUP BY router_id"
@@ -251,18 +296,26 @@ function requestRouterPayout($conn, int $user_id, int $router_id, string $phone,
             $conn->rollback();
             return ['ok' => false, 'msg' => 'Kiasi cha juu kwa ombi moja ni TSh ' . number_format($max) . '. Gawa ombi lako.', 'available' => $available];
         }
-        if ($amount > $available) {
+        // Ada ya Snippe (flat) inatoka kwenye salio la mmiliki, siyo kwa
+        // Tech5G: mpokeaji anapata $amount KAMILI, salio linapungua jumla.
+        $fee   = calculatePayoutFee();
+        $jumla = payoutTotalCost($amount);
+
+        if ($jumla > $available) {
             $conn->rollback();
             return ['ok' => false,
-                    'msg' => 'Huwezi kutoa kiasi kinachozidi salio la router hii (TSh ' . number_format($available, 2) . ').',
+                    'msg' => 'Salio halitoshi. Kutoa TSh ' . number_format($amount, 2)
+                           . ' kunahitaji TSh ' . number_format($jumla, 2)
+                           . ' (pamoja na ada ya Snippe TSh ' . number_format($fee) . '), '
+                           . 'lakini salio la router hii ni TSh ' . number_format($available, 2) . '.',
                     'available' => $available];
         }
 
         $ins = $conn->prepare(
-            "INSERT INTO payout_requests (user_id, router_id, phone_number, amount, status)
-             VALUES (?, ?, ?, ?, 'pending')"
+            "INSERT INTO payout_requests (user_id, router_id, phone_number, amount, fee_amount, status)
+             VALUES (?, ?, ?, ?, ?, 'pending')"
         );
-        $ins->bind_param("iisd", $user_id, $router_id, $phone, $amount);
+        $ins->bind_param("iisdd", $user_id, $router_id, $phone, $amount, $fee);
         $ins->execute();
         $ins->close();
 
@@ -270,8 +323,10 @@ function requestRouterPayout($conn, int $user_id, int $router_id, string $phone,
 
         return ['ok' => true,
                 'msg' => 'Ombi lako la Cash Out la TSh ' . number_format($amount, 2)
-                       . ' kwa ' . $owns['router_label'] . ' limepelekwa kwa Admin kikamilifu!',
-                'available' => round($available - $amount, 2)];
+                       . ' kwa ' . $owns['router_label'] . ' limepelekwa kwa Admin kikamilifu! '
+                       . '(Jumla iliyokatwa: TSh ' . number_format($jumla, 2)
+                       . ' - ikijumuisha ada ya Snippe TSh ' . number_format($fee) . ')',
+                'available' => round($available - $jumla, 2)];
 
     } catch (\Throwable $e) {
         $conn->rollback();
