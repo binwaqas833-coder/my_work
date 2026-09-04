@@ -61,7 +61,12 @@ const MUDA_WA_KUPIMA = 4;
 $res = $conn->query(
     "SELECT mc.router_id, mc.user_id, mc.router_label, mc.mikrotik_ip, mc.api_port,
             mc.api_user, mc.api_pass,
-            u.username, u.alert_email, u.notify_station_offline,
+            u.username,
+            -- alert_email ni ya hiari na haikujazwa na mtu yeyote (NULL kwa
+            -- wote tarehe 2026-09-04). users.email daima ipo, hivyo ndiyo
+            -- ya kutegemea - alert isiyofika ni sawa na kutokuwepo.
+            COALESCE(NULLIF(u.alert_email,''), u.email) AS alert_email,
+            u.notify_station_offline,
             rh.status AS hali_ya_zamani, rh.consecutive_failures, rh.last_ok_at
        FROM mikrotik_configs mc
        JOIN users u          ON u.id = mc.user_id

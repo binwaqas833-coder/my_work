@@ -166,19 +166,25 @@ function onyaDeniLaVocha($conn, array $txn, string $sababu, int $dakika): bool
         ['user_id' => (int)$txn['user_id'], 'router_id' => (int)$txn['router_id'],
          'context' => ['transaction_id' => $ref, 'majaribio' => (int)$txn['delivery_attempts']]]);
 
-    // Email ya reseller mwenye router hii
-    $q = $conn->prepare("SELECT username, alert_email FROM users WHERE id = ? LIMIT 1");
+    // Email ya reseller mwenye router hii.
+    //
+    // alert_email ni ya HIARI na kwa kweli HAKUNA mtumiaji hata mmoja
+    // aliyeijaza (ilikuwa NULL kwa wote wanne tarehe 2026-09-04). Bila
+    // fallback hii, kila alert ingekufa kimya kimya - onyo lisilofika
+    // ni sawa na kutokuwepo kabisa. users.email daima ipo (ndiyo ya
+    // kuingilia), hivyo ndiyo anwani ya mwisho ya kutegemea.
+    $q = $conn->prepare("SELECT username, COALESCE(NULLIF(alert_email,''), email) AS anwani FROM users WHERE id = ? LIMIT 1");
     $q->bind_param("i", $txn['user_id']);
     $q->execute();
     $mtumiaji = $q->get_result()->fetch_assoc();
     $q->close();
 
-    if (!$mtumiaji || empty($mtumiaji['alert_email'])) {
+    if (!$mtumiaji || empty($mtumiaji['anwani'])) {
         return false;
     }
 
     $jibu = tumaEmailAlert(
-        $mtumiaji['alert_email'],
+        $mtumiaji['anwani'],
         "⚠️ Mteja amelipa hajapata vocha: {$txn['phone']}",
         "<p>Habari {$mtumiaji['username']},</p>
          <p>Mteja <strong>{$txn['phone']}</strong> alilipa <strong>TSh "

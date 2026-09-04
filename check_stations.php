@@ -21,7 +21,11 @@ $jumla_zilizobadilika = 0;
 $sql = "
     SELECT ap.id, ap.user_id, ap.jina_la_ap, ap.ip_address, ap.status AS status_ya_zamani,
            ap.eneo_ilipo,
-           u.alert_email, u.notify_station_offline, u.username
+           -- alert_email ni ya hiari na haikujazwa na mtu yeyote (NULL kwa
+           -- wote tarehe 2026-09-04), hivyo alert ZOTE za station zilikuwa
+           -- zinakufa kimya kimya. users.email daima ipo.
+           COALESCE(NULLIF(u.alert_email,''), u.email) AS alert_email,
+           u.notify_station_offline, u.username
     FROM access_points ap
     JOIN users u ON ap.user_id = u.id
 ";
