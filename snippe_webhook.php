@@ -144,9 +144,19 @@ if (strncmp($aina, 'payment.', 8) === 0) {
 
     if ($ni_mafanikio) {
         $res = completeVoucherPayment($conn, $external_id);
-        if ($res['status'] === 'failed') {
+
+        // Pesa ipo kwetu lakini vocha haijatoka. SIYO mwisho wa safari:
+        // muamala umewekwa 'paid_pending_voucher' na retry_pending_vouchers.php
+        // itaendelea kujaribu. Tunaandika log ili ionekane, siyo kama hasara.
+        if ($res['status'] === 'paid_pending_voucher') {
             logSystemError($conn, 'snippe_webhook.php',
-                'Malipo yamefanikiwa Snippe lakini vocha imeshindikana: ' . $res['message'],
+                'Malipo yamepokelewa lakini vocha bado haijatolewa (itajaribiwa tena): ' . $res['message'],
+                ['context' => ['transaction_id' => $external_id, 'snippe_ref' => $snippe_ref]]);
+        } elseif ($res['status'] === 'failed') {
+            // Haitokei kwa muamala uliolipiwa (mfano: transaction_id haipo
+            // kwenye database kabisa). Ni ishara ya tatizo kubwa la data.
+            logSystemError($conn, 'snippe_webhook.php',
+                'Malipo yamefanikiwa Snippe lakini muamala haukupatikana: ' . $res['message'],
                 ['context' => ['transaction_id' => $external_id, 'snippe_ref' => $snippe_ref]]);
         }
     } else {

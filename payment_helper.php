@@ -16,6 +16,24 @@
  * yake yenyewe (iliyowekwa na lipia.php) - hii ndiyo chanzo cha ukweli
  * cha "vocha hii inaenda router ipi", SIYO tena "router ya kwanza ya
  * user huyu" kama ilivyokuwa awali.
+ *
+ * ── SHERIA MUHIMU KULIKO ZOTE HAPA (2026-09-04) ──
+ * PESA IKISHAINGIA, MUAMALA HAUWEZI KAMWE KUWA 'failed'.
+ *
+ * Tarehe 2026-09-04 mteja alilipa TZS 1,000, Snippe wakapokea pesa,
+ * lakini router ya reseller haikufikika kwenye tunnel. Mfumo uliweka
+ * 'failed' - na kwa sababu completeVoucherPayment() inarudi mapema
+ * kwa rekodi ya 'failed', hakuna kilichojaribu tena hata router
+ * ilipofikika. Mteja alipoteza pesa kimya kimya.
+ *
+ * Sasa kuna hali ya kati: 'paid_pending_voucher' = "amelipa, vocha
+ * bado". Ni DENI. retry_pending_vouchers.php inaendelea kujaribu
+ * mpaka vocha itoke, na admin anaarifiwa ikichukua muda mrefu.
+ *
+ * Hivyo, unapoongeza tawi jipya la kushindwa hapa chini, jiulize swali
+ * MOJA: "je pesa ya mteja tayari ipo kwa gateway?"
+ *   NDIYO -> markTransactionPaidPendingVoucher()   (itajaribiwa tena)
+ *   HAPANA -> markTransactionFailed()              (mwisho wa safari)
  * -------------------------------------------------------------
  */
 
@@ -45,6 +63,8 @@ function completeVoucherPayment($conn, $transaction_id)
         return ['status' => 'completed', 'voucher_code' => $txn['voucher_code'], 'message' => 'Malipo yamekamilika.'];
     }
     if ($txn['status'] === 'failed') {
+        // 'failed' sasa ina maana MOJA: hakuna pesa iliyopokelewa.
+        // Muamala uliolipiwa hauwezi kufika hapa (angalia maelezo ya juu).
         return ['status' => 'failed', 'voucher_code' => null, 'message' => 'Malipo yalishindikana.'];
     }
 
@@ -54,9 +74,15 @@ function completeVoucherPayment($conn, $transaction_id)
     // moja ingetengeneza vocha yake - mteja mmoja, vocha mbili, hasara
     // kwa reseller. UPDATE ya masharti hapa chini inafanikiwa kwa MMOJA
     // tu (MySQL inaifanya atomic); mwingine anaona affected_rows = 0.
+    //
+    // 'paid_pending_voucher' inaruhusiwa kudaiwa pia: ndiyo hasa hali
+    // ambayo cron ya kujaribu tena inaikuta, na ulinzi ule ule wa
+    // claimed_at unaizuia isigongane na poll ya mteja.
     $claim = $conn->prepare(
         "UPDATE payment_transactions SET claimed_at = NOW()
-         WHERE transaction_id = ? AND status = 'pending' AND claimed_at IS NULL"
+         WHERE transaction_id = ?
+           AND status IN ('pending','paid_pending_voucher')
+           AND claimed_at IS NULL"
     );
     $claim->bind_param("s", $transaction_id);
     $claim->execute();
@@ -69,14 +95,21 @@ function completeVoucherPayment($conn, $transaction_id)
         return ['status' => 'pending', 'voucher_code' => null, 'message' => 'Malipo yanachakatwa...'];
     }
 
+    // Kuanzia hapa tunajua PESA IMEINGIA (mwitaji - webhook, poll, au cron -
+    // amethibitisha na gateway kabla ya kutuita). Kila njia ya kutoka chini
+    // ni ama 'completed' ama 'paid_pending_voucher'; hakuna 'failed'.
+
     $user_id      = (int)$txn['user_id'];
     $router_id    = (int)($txn['router_id'] ?? 0);
     $package_type = $txn['package_type'];
 
     if ($router_id <= 0) {
-        markTransactionFailed($conn, $transaction_id, 'Router haijulikani kwenye transaction hii.');
+        // Data mbovu - cron haiwezi kuitatua yenyewe, lakini pesa IPO.
+        // Inabaki 'paid_pending_voucher' ili ionekane kwenye orodha ya
+        // madeni na admin aingilie kwa mkono (siyo kufichwa kama 'failed').
+        markTransactionPaidPendingVoucher($conn, $transaction_id, 'Router haijulikani kwenye transaction hii.');
         logSystemError($conn, 'payment_helper.php', "Transaction {$transaction_id} haina router_id.", ['user_id' => $user_id]);
-        return ['status' => 'failed', 'voucher_code' => null, 'message' => 'Router haijulikani kwenye transaction hii.'];
+        return ['status' => 'paid_pending_voucher', 'voucher_code' => null, 'message' => 'Router haijulikani kwenye transaction hii.'];
     }
 
     // Tariff HALISI - sasa kwa router_id (chanzo cha ukweli)
@@ -87,8 +120,14 @@ function completeVoucherPayment($conn, $transaction_id)
     $t2->close();
 
     if (!$tariff) {
-        markTransactionFailed($conn, $transaction_id, 'Kifurushi hakipatikani tena.');
-        return ['status' => 'failed', 'voucher_code' => null, 'message' => 'Kifurushi hakipatikani tena.'];
+        // Reseller amefuta/kubadilisha tariff kati ya mteja kulipa na vocha
+        // kutolewa. Ni tatizo linaloweza kurekebishwa (arudishe tariff), na
+        // pesa tayari ipo - hivyo ni deni, siyo 'failed'.
+        markTransactionPaidPendingVoucher($conn, $transaction_id, 'Kifurushi hakipatikani tena.');
+        logSystemError($conn, 'payment_helper.php',
+            "Tariff '{$package_type}' haipo tena kwa router_id={$router_id} - vocha ya {$transaction_id} imekwama.",
+            ['user_id' => $user_id, 'router_id' => $router_id]);
+        return ['status' => 'paid_pending_voucher', 'voucher_code' => null, 'message' => 'Kifurushi hakipatikani tena.'];
     }
 
     $duration_days = (int)$tariff['duration_days'];
@@ -100,10 +139,13 @@ function completeVoucherPayment($conn, $transaction_id)
     } while ($chk && $chk->num_rows > 0);
 
     // Unganisha na router SAHIHI (iliyohifadhiwa kwenye txn, siyo "ya kwanza tuliyoipata")
+    // HII NDIYO SEHEMU ILIYOPOTEZA PESA YA MTEJA TAREHE 2026-09-04.
+    // Router chini = tatizo LETU la muda, siyo mteja kushindwa kulipa.
     $API = getMikrotikConnection($router_id, $user_id, $conn);
     if (!$API) {
-        markTransactionFailed($conn, $transaction_id, 'Router ya mtoa huduma haipatikani.');
-        return ['status' => 'failed', 'voucher_code' => null, 'message' => 'Router ya mtoa huduma haipatikani.'];
+        markTransactionPaidPendingVoucher($conn, $transaction_id, 'Router ya mtoa huduma haipatikani.');
+        return ['status' => 'paid_pending_voucher', 'voucher_code' => null,
+                'message' => 'Malipo yamepokelewa. Vocha itatolewa router itakaporudi.'];
     }
 
     $limit_uptime = ($duration_days >= 1) ? ($duration_days . "d") : "1h";
@@ -111,8 +153,16 @@ function completeVoucherPayment($conn, $transaction_id)
 
     if (isset($add_response['!trap'])) {
         $API->disconnect();
-        markTransactionFailed($conn, $transaction_id, 'Imeshindikana kupandisha MikroTik.');
-        return ['status' => 'failed', 'voucher_code' => null, 'message' => 'Imeshindikana kupandisha MikroTik.'];
+        // Tunaunganika na router lakini imekataa amri (mfano profile
+        // haipo, au user amejaa). Bado ni tatizo la router - pesa ipo.
+        $sababu_trap = $add_response['!trap'][0]['message'] ?? '';
+        markTransactionPaidPendingVoucher($conn, $transaction_id, 'Imeshindikana kupandisha MikroTik.');
+        logSystemError($conn, 'payment_helper.php',
+            "MikroTik imekataa kuunda hotspot user kwa {$transaction_id}: " . ($sababu_trap ?: 'hakuna maelezo'),
+            ['user_id' => $user_id, 'router_id' => $router_id,
+             'context' => ['profile' => $profile_name, 'trap' => $sababu_trap]]);
+        return ['status' => 'paid_pending_voucher', 'voucher_code' => null,
+                'message' => 'Malipo yamepokelewa. Vocha inaandaliwa.'];
     }
 
     $mikrotik_synced   = 1;
@@ -158,10 +208,14 @@ function completeVoucherPayment($conn, $transaction_id)
     $net   = calculateNetAmount($gross);
     $fee_p = GATEWAY_FEE_PERCENT;
 
+    // next_attempt_at inafutwa: deni limelipwa, cron isiiguse tena.
+    // fail_reason inafutwa pia - vinginevyo sababu ya jaribio lililoshindwa
+    // ingebaki ikionekana kwenye rekodi iliyofanikiwa.
     $u = $conn->prepare(
         "UPDATE payment_transactions
             SET status='completed', voucher_code=?,
-                fee_percent=?, fee_amount=?, net_amount=?, updated_at=NOW()
+                fee_percent=?, fee_amount=?, net_amount=?,
+                fail_reason=NULL, next_attempt_at=NULL, updated_at=NOW()
           WHERE transaction_id=?"
     );
     $u->bind_param("sddds", $voucher_code, $fee_p, $fee, $net, $transaction_id);
@@ -172,9 +226,57 @@ function completeVoucherPayment($conn, $transaction_id)
 }
 
 /**
+ * PESA IMEPOKELEWA, VOCHA HAIJATOKA - hali ya kati inayojaribiwa tena.
+ *
+ * Tumia HII (siyo markTransactionFailed) kila tatizo linapokuwa la KWETU:
+ * router chini, MikroTik imekataa amri, tariff imefutwa. Mteja amelipa;
+ * deni haliwezi kufutwa kwa kuandika 'failed'.
+ *
+ * BACKOFF: router iliyokufa isipigwe kila dakika 2 milele - ingejaza
+ * error_logs na kuchelewesha cron. Muda unaongezeka 2, 4, 8, 16 dakika
+ * ... mpaka dakika 30, kisha unabaki hapo. Router ikirudi baada ya saa
+ * kadhaa, jaribio linalofuata bado litakuja - hakuna kikomo cha majaribio,
+ * kwa sababu hakuna kikomo cha deni.
+ *
+ * claimed_at inarudishwa NULL: bila hivyo hakuna anayeweza kuudai tena
+ * muamala huu (cron wala admin) na ungebaki umekwama milele.
+ */
+function markTransactionPaidPendingVoucher($conn, $transaction_id, $reason)
+{
+    $reason = mb_substr((string)$reason, 0, 255);
+
+    // delivery_attempts + 1 inahesabiwa ndani ya SQL ili majaribio ya
+    // wakati mmoja (webhook + cron) yasipoteze hesabu ya mwenzake.
+    $u = $conn->prepare(
+        "UPDATE payment_transactions
+            SET status            = 'paid_pending_voucher',
+                fail_reason       = ?,
+                claimed_at        = NULL,
+                delivery_attempts = delivery_attempts + 1,
+                next_attempt_at   = DATE_ADD(NOW(), INTERVAL LEAST(POW(2, LEAST(delivery_attempts + 1, 5)), 30) MINUTE),
+                updated_at        = NOW()
+          WHERE transaction_id = ?
+            AND status <> 'completed'"
+    );
+    $u->bind_param("ss", $reason, $transaction_id);
+    $u->execute();
+    $u->close();
+}
+
+/**
  * Weka alama ya kushindikana + SABABU. Sababu inahifadhiwa (fail_reason)
  * ili admin aone kwenye malipo_status.php kwa nini muamala ulikwama,
  * badala ya "failed" tupu isiyoeleza kitu.
+ *
+ * ⚠️ TUMIA HII PALE TU MTEJA HAKULIPA (amekataa prompt, salio halitoshi,
+ * muda umeisha, gateway imesema 'failed'). Kwa tatizo lolote la KWETU
+ * baada ya pesa kuingia, tumia markTransactionPaidPendingVoucher().
+ *
+ * Ulinzi: rekodi iliyokwisha kulipiwa haiwezi kurudishwa 'failed'.
+ * 'completed' ni dhahiri; 'paid_pending_voucher' pia inalindwa kwa
+ * sababu ni deni lililothibitishwa - webhook ya "failed" iliyochelewa
+ * (mfano jaribio la pili la mteja lililoshindwa likifika baada ya la
+ * kwanza kufanikiwa) isije ikafuta deni halali.
  *
  * claimed_at inarudishwa NULL ili "Kukamilisha" ya admin iweze kujaribu tena.
  */
@@ -183,8 +285,9 @@ function markTransactionFailed($conn, $transaction_id, $reason)
     $reason = mb_substr((string)$reason, 0, 255);
     $u = $conn->prepare(
         "UPDATE payment_transactions
-         SET status='failed', fail_reason=?, claimed_at=NULL, updated_at=NOW()
-         WHERE transaction_id=?"
+         SET status='failed', fail_reason=?, claimed_at=NULL, next_attempt_at=NULL, updated_at=NOW()
+         WHERE transaction_id=?
+           AND status NOT IN ('completed','paid_pending_voucher')"
     );
     $u->bind_param("ss", $reason, $transaction_id);
     $u->execute();
@@ -205,12 +308,23 @@ function retryPaymentTransaction($conn, $transaction_id)
 {
     $u = $conn->prepare(
         "UPDATE payment_transactions
-         SET status='pending', claimed_at=NULL
-         WHERE transaction_id=? AND status IN ('failed','pending')"
+         SET claimed_at=NULL, next_attempt_at=NULL
+         WHERE transaction_id=? AND status IN ('failed','pending','paid_pending_voucher')"
     );
     $u->bind_param("s", $transaction_id);
     $u->execute();
     $u->close();
+
+    // 'failed' pekee ndiyo inayohitaji kurudishwa 'pending' - hapo admin
+    // anadai "amelipa kweli, nimethibitisha kwenye dashboard ya Snippe".
+    // 'paid_pending_voucher' HAIGUSWI: tayari ni hali inayoruhusu kudaiwa,
+    // na kuirudisha 'pending' kungefuta ushahidi kuwa pesa ilishaingia.
+    $r = $conn->prepare(
+        "UPDATE payment_transactions SET status='pending' WHERE transaction_id=? AND status='failed'"
+    );
+    $r->bind_param("s", $transaction_id);
+    $r->execute();
+    $r->close();
 
     return completeVoucherPayment($conn, $transaction_id);
 }

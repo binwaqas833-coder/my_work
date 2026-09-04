@@ -66,6 +66,22 @@ function getMikrotikConnection($router_id, $user_id, $conn)
     $API->debug = false;
     $API->port  = $config['api_port'] ?: 8728;
 
+    // ── KUSHINDWA HARAKA (2026-09-04) ──
+    // routeros_api.class.php inakuja na attempts=5, timeout=3, delay=3.
+    // Router iliyokufa hushikilia mwitaji kwa ~27 SEKUNDE. Hilo ni tatizo
+    // halisi, siyo la nadharia: snippe_webhook.php lazima ijibu 2xx ndani
+    // ya sekunde 30 - ikichelewa, Snippe wanahesabu webhook imeshindikana
+    // na kuanza mzunguko wa kujaribu tena. Pia kila poll ya mteja (kila
+    // sekunde 3) ingeshikilia FPM worker robo dakika: wateja wachache
+    // kwenye router iliyozima wangetosha kumaliza pool nzima.
+    //
+    // 2 x (4s kuunganisha) + 1s kusubiri = sekunde 9 mbaya zaidi.
+    // Router iliyo hai kwenye tunnel hujibu ndani ya milisekunde 200,
+    // hivyo hii haigusi kabisa njia ya kawaida.
+    $API->attempts = 2;
+    $API->timeout  = 4;
+    $API->delay    = 1;
+
     $connected = $API->connect(
         $config['mikrotik_ip'],
         $config['api_user'],

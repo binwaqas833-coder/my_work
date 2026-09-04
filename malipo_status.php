@@ -301,8 +301,12 @@ $stmt->close();
     .badge-completed{ background:rgba(7,247,147,0.18); color:var(--accent); }
     .badge-pending{ background:rgba(255,176,32,0.18); color:var(--amber); }
     .badge-failed{ background:rgba(255,61,87,0.18); color:var(--red); }
-    
+    /* Deni: mteja AMELIPA, vocha bado. Rangi ya bluu kwa makusudi -
+       isionekane kama 'failed' nyekundu, wala kama 'completed' kijani. */
+    .badge-paid_pending_voucher{ background:rgba(63,199,253,0.20); color:var(--accent2); }
+
     .stuck{ color:var(--amber); font-size:10.5px; display:block; margin-top:3px; }
+    .deni{ color:var(--accent2); font-size:10.5px; display:block; margin-top:3px; }
     .btn-retry{
         padding:6px 14px;
         border-radius:8px;
@@ -462,6 +466,12 @@ $stmt->close();
         <?php else: foreach ($rows as $r):
             $ni_pending_kwama = ($r['status'] === 'pending') && ((time() - strtotime($r['created_at'])) > $STUCK_MINUTES * 60);
             $badge_class = 'badge-' . $r['status'];
+
+            // 'PAID_PENDING_VOUCHER' ni neno la database. Kwa mtu anayeangalia
+            // ukurasa, jambo muhimu ni MOJA: pesa ipo, vocha bado.
+            $ni_deni      = ($r['status'] === 'paid_pending_voucher');
+            $status_label = $ni_deni ? 'IMELIPWA · VOCHA INASUBIRI' : strtoupper($r['status']);
+            $dakika_deni  = $ni_deni ? (int)round((time() - strtotime($r['created_at'])) / 60) : 0;
         ?>
             <tr id="row-<?php echo htmlspecialchars($r['transaction_id']); ?>">
                 <td style="color:var(--text-dim); font-size:12px;"><?php echo date('d M, H:i', strtotime($r['created_at'])); ?></td>
@@ -479,12 +489,18 @@ $stmt->close();
                 </td>
                 <td style="font-family:'Space Mono',monospace; font-size:11px; color:var(--text-dim);"><?php echo htmlspecialchars($r['transaction_id']); ?></td>
                 <td>
-                    <span class="badge <?php echo $badge_class; ?>" data-status-label><?php echo strtoupper($r['status']); ?></span>
+                    <span class="badge <?php echo $badge_class; ?>" data-status-label><?php echo $status_label; ?></span>
                     <?php if ($ni_pending_kwama): ?><span class="stuck"><i class="fa-solid fa-triangle-exclamation"></i> Imekwama > <?php echo $STUCK_MINUTES; ?>m</span><?php endif; ?>
+                    <?php if ($ni_deni): ?>
+                    <span class="deni"><i class="fa-solid fa-hourglass-half"></i>
+                        Dakika <?php echo $dakika_deni; ?> · majaribio <?php echo (int)$r['delivery_attempts']; ?>
+                        <?php if (!empty($r['fail_reason'])): ?><br><?php echo htmlspecialchars($r['fail_reason']); ?><?php endif; ?>
+                    </span>
+                    <?php endif; ?>
                 </td>
                 <td data-voucher><?php echo $r['voucher_code'] ? "<span class='voucher-code'>{$r['voucher_code']}</span>" : '-'; ?></td>
                 <td>
-                    <?php if (in_array($r['status'], ['pending', 'failed'])): ?>
+                    <?php if (in_array($r['status'], ['pending', 'failed', 'paid_pending_voucher'])): ?>
                     <button class="btn-retry" onclick="jaribuTena('<?php echo htmlspecialchars($r['transaction_id']); ?>', this)"><i class="fa-solid fa-rotate-right"></i> Kukamilisha</button>
                     <?php endif; ?>
                 </td>
@@ -567,6 +583,15 @@ function jaribuTena(ref, btn) {
             row.querySelector('[data-voucher]').innerHTML = "<span class='voucher-code'>" + data.voucher_code + "</span>";
             btn.remove();
             onyeshaToast('✅ Imekamilika! Voucher: ' + data.voucher_code);
+        } else if (data.status === 'paid_pending_voucher') {
+            // Pesa ipo, router bado haifikiki. Kitufe kinabaki - lakini
+            // hakuna haja ya kukibonyeza tena: cron inajaribu yenyewe.
+            row.querySelector('[data-status-label]').textContent = 'IMELIPWA · VOCHA INASUBIRI';
+            row.querySelector('[data-status-label]').className = 'badge badge-paid_pending_voucher';
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-rotate-right"></i> Kukamilisha';
+            onyeshaToast('💰 Pesa ipo, lakini ' + (data.message || 'vocha bado haijatoka') +
+                         ' Mfumo utaendelea kujaribu wenyewe.');
         } else {
             btn.disabled = false;
             btn.innerHTML = '<i class="fa-solid fa-rotate-right"></i> Kukamilisha';

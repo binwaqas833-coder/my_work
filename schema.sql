@@ -199,8 +199,17 @@ CREATE TABLE payment_transactions (
     transaction_id VARCHAR(64)  NOT NULL UNIQUE,   -- rejea YETU (external_id kwa gateway)
     gateway_uuid      VARCHAR(64) NULL,             -- reference ya Snippe (nakala)
     gateway_reference VARCHAR(64) NULL,             -- reference ya Snippe (hali huulizwa kwa HII)
-    status         ENUM('pending','completed','failed') NOT NULL DEFAULT 'pending',
+    -- pending              = hatujui kama mteja amelipa (bado tunasubiri gateway)
+    -- paid_pending_voucher = AMELIPA lakini vocha bado haijatoka (router chini
+    --                        n.k.). Ni DENI: retry_pending_vouchers.php inajaribu
+    --                        tena mpaka vocha itoke. Angalia payment_helper.php.
+    -- completed            = amelipa NA amepata vocha
+    -- failed               = HAKULIPA. Hii ndiyo maana yake pekee.
+    status         ENUM('pending','paid_pending_voucher','completed','failed') NOT NULL DEFAULT 'pending',
     fail_reason    VARCHAR(255) NULL,               -- sababu halisi ya kushindikana
+    delivery_attempts INT      NOT NULL DEFAULT 0,  -- mara ngapi tumejaribu kutoa vocha
+    next_attempt_at   DATETIME NULL,                -- backoff: cron isijaribu kabla ya hapa
+    alerted_at        DATETIME NULL,                -- reseller/admin ameshaarifiwa lini
     claimed_at     DATETIME     NULL,               -- ulinzi: webhook vs poll wasitengeneze vocha mbili
     voucher_code   VARCHAR(20)  NULL,
     client_mac     VARCHAR(20)  NULL,
@@ -212,7 +221,24 @@ CREATE TABLE payment_transactions (
     KEY idx_router_id (router_id),
     KEY idx_gateway_uuid (gateway_uuid),
     KEY idx_gateway_reference (gateway_reference),   -- webhook hutafuta kwa hii
-    KEY idx_owner_router_status (user_id, router_id, status)
+    KEY idx_owner_router_status (user_id, router_id, status),
+    KEY idx_status_next_attempt (status, next_attempt_at)  -- cron ya kujaribu tena
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── AFYA YA KILA ROUTER (router_health_check.php, cron kila dakika 5) ──
+-- Rekodi MOJA kwa kila router: hali ya SASA, siyo historia (historia ipo
+-- error_logs). Bila jedwali hili hakuna anayejua router imezima mpaka
+-- mteja alipe na vocha ishindikane - ndivyo routers 1-3 zilivyokaa
+-- hazifikiki kwa wiki tatu (2026-08-16 hadi 2026-09-04) bila kugundulika.
+CREATE TABLE router_health (
+    router_id            INT NOT NULL PRIMARY KEY,
+    status               ENUM('online','offline','unknown') NOT NULL DEFAULT 'unknown',
+    consecutive_failures INT      NOT NULL DEFAULT 0,   -- 2 mfululizo = tangaza imezima
+    last_check_at        DATETIME NULL,
+    last_ok_at           DATETIME NULL,                 -- mara ya mwisho API ilijibu
+    last_error           VARCHAR(255) NULL,
+    alerted_at           DATETIME NULL,
+    KEY idx_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ── MAOMBI YA CASH OUT (payout) ZA RESELLER ── [NDIO ZIADA: haikuwepo schema.sql ya zamani]

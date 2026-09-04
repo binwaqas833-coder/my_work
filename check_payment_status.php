@@ -35,13 +35,36 @@ function jibu(array $data) {
     exit();
 }
 
+/**
+ * Geuza jibu la completeVoucherPayment() kuwa jibu la JSON kwa ukurasa.
+ *
+ * 'paid_pending_voucher' ni neno la ndani (database). Kwa mteja ni
+ * 'processing': pesa imepokelewa, vocha inaandaliwa. JS ya lipia.php
+ * inaendelea kusubiri badala ya kuonyesha "Hitilafu" - kumwambia mtu
+ * aliyelipa kuwa malipo yameshindikana ndilo kosa tunalozuia hapa.
+ */
+function jibuLaVocha(array $res): array {
+    if ($res['status'] === 'paid_pending_voucher') {
+        return [
+            'status'  => 'processing',
+            'message' => 'Malipo yako yamepokelewa. Tunaandaa vocha yako...',
+        ];
+    }
+    return [
+        'status'       => $res['status'],
+        'voucher_code' => $res['voucher_code'],
+        'message'      => $res['message'],
+    ];
+}
+
 $ref = trim($_GET['ref'] ?? '');
 if ($ref === '') {
     jibu(['status' => 'failed', 'message' => 'Rejea ya muamala haipo.']);
 }
 
 $stmt = $conn->prepare(
-    "SELECT transaction_id, status, voucher_code, gateway_reference, fail_reason, created_at
+    "SELECT transaction_id, status, voucher_code, gateway_reference, fail_reason, created_at,
+            next_attempt_at
      FROM payment_transactions WHERE transaction_id = ? LIMIT 1"
 );
 $stmt->bind_param("s", $ref);
@@ -61,11 +84,36 @@ if ($txn['status'] === 'failed') {
     jibu(['status' => 'failed', 'message' => $txn['fail_reason'] ?: 'Malipo yameshindikana.']);
 }
 
+// ── PESA IMEINGIA LAKINI VOCHA HAIJATOKA ──
+// Mteja hapa AMELIPA. Hatumwambii "imeshindikana" - hilo ndilo kosa
+// lililomkasirisha mteja wa tarehe 2026-09-04. Tunamwambia ukweli:
+// pesa ipo, vocha inakuja.
+//
+// Mteja bado yupo kwenye ukurasa, hivyo huu ndio wakati wa haraka
+// zaidi wa kujaribu tena - haraka kuliko cron ya kila dakika 2.
+// Lakini tunaheshimu backoff ya next_attempt_at: bila hiyo, kila poll
+// ya sekunde 3 ingeshikilia FPM worker kwa sekunde 9 ikisubiri router
+// iliyokufa, na wateja wachache wangeitosha seva nzima.
+if ($txn['status'] === 'paid_pending_voucher') {
+    $muda_umefika = empty($txn['next_attempt_at']) || strtotime($txn['next_attempt_at']) <= time();
+
+    if ($muda_umefika) {
+        $res = completeVoucherPayment($conn, $ref);
+        if ($res['status'] === 'completed') {
+            jibu(['status' => 'completed', 'voucher_code' => $res['voucher_code']]);
+        }
+    }
+
+    jibu([
+        'status'  => 'processing',
+        'message' => 'Malipo yako yamepokelewa. Tunaandaa vocha yako...',
+    ]);
+}
+
 // ── MOCK (development bila API key): jikamilishe baada ya sekunde chache ──
 if (PAYMENT_MOCK_MODE) {
     if ((time() - strtotime($txn['created_at'])) >= PAYMENT_MOCK_DELAY_SECONDS) {
-        $res = completeVoucherPayment($conn, $ref);
-        jibu(['status' => $res['status'], 'voucher_code' => $res['voucher_code'], 'message' => $res['message']]);
+        jibu(jibuLaVocha(completeVoucherPayment($conn, $ref)));
     }
     jibu(['status' => 'pending']);
 }
@@ -87,8 +135,7 @@ if (!$hali['ok']) {
 }
 
 if ($hali['status'] === 'success') {
-    $res = completeVoucherPayment($conn, $ref);
-    jibu(['status' => $res['status'], 'voucher_code' => $res['voucher_code'], 'message' => $res['message']]);
+    jibu(jibuLaVocha(completeVoucherPayment($conn, $ref)));
 }
 
 if ($hali['status'] === 'failed') {

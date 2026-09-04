@@ -160,7 +160,19 @@ if (!PAYMENT_MOCK_MODE) {
 <script>
 const REF = <?php echo json_encode($transaction_id); ?>;
 let jaribio = 0;
-const MAX_JARIBIO = 40;
+
+// MUDA WA KUSUBIRI: dakika 6 (120 x sekunde 3).
+//
+// Awali ilikuwa 40 (dakika 2) - na hiyo ilikuwa FUPI KULIKO UKWELI.
+// Tarehe 2026-09-04 webhook ya Snippe ilifika DAKIKA 3:43 baada ya
+// mteja kuanzisha malipo; ukurasa wake ulikuwa umeshakata tamaa na
+// kuandika "Muda umeisha" wakati pesa ilikuwa tayari imetoka.
+// Mteja anayeingiza PIN yake polepole hapaswi kuambiwa amekosa.
+const MAX_JARIBIO = 120;
+
+// Tunapojua pesa imeingia (status 'processing'), kukata tamaa siyo
+// chaguo tena - ni suala la kusubiri tu vocha iandaliwe.
+let pesa_imeingia = false;
 
 function angaliaHaliYaMalipo() {
     jaribio++;
@@ -171,13 +183,29 @@ function angaliaHaliYaMalipo() {
                 onyeshaMafanikio(data.voucher_code);
             } else if (data.status === 'failed') {
                 onyeshaHitilafu(data.message || 'Malipo yameshindikana.');
-            } else if (jaribio >= MAX_JARIBIO) {
-                onyeshaHitilafu('Muda wa kusubiri umeisha. Kama pesa imetoka kwenye simu yako, wasiliana na msimamizi ukiwa na namba hii ya rejea: ' + REF);
+            } else if (data.status === 'processing') {
+                // Pesa IPO. Endelea kusubiri bila kikomo cha MAX_JARIBIO,
+                // lakini punguza kasi ya kupiga seva (sekunde 5).
+                pesa_imeingia = true;
+                onyeshaInaandaliwa(data.message);
+                setTimeout(angaliaHaliYaMalipo, 5000);
+            } else if (jaribio >= MAX_JARIBIO && !pesa_imeingia) {
+                onyeshaMudaUmeisha();
             } else {
                 setTimeout(angaliaHaliYaMalipo, 3000);
             }
         })
         .catch(() => setTimeout(angaliaHaliYaMalipo, 3000));
+}
+
+// Pesa imeingia, vocha inaandaliwa (mfano router ya eneo hili ilikuwa
+// imezima kwa muda). Ujumbe huu SIYO wa hitilafu - spinner inaendelea.
+function onyeshaInaandaliwa(ujumbe) {
+    document.getElementById('title').textContent = 'Malipo Yamepokelewa ✅';
+    document.getElementById('msg').innerHTML =
+        (ujumbe || 'Malipo yako yamepokelewa. Tunaandaa vocha yako...') +
+        '<br><br>Tafadhali subiri, usifunge ukurasa huu.' +
+        '<br><span style="font-size:12px;color:#888;">Namba ya rejea: <b>' + REF + '</b></span>';
 }
 
 function onyeshaMafanikio(kodi) {
@@ -189,6 +217,39 @@ function onyeshaMafanikio(kodi) {
         <div class="code-box">${kodi}</div>
         <p style="font-size:12px;color:#888;">Tunza namba hii ya vocha kwa rejea.</p>
     `;
+}
+
+// Hatujapata jibu la mwisho ndani ya dakika 6. HATUSEMI "imeshindikana" -
+// hatujui. Tunampa mteja namba ya rejea na kitufe cha kuangalia tena:
+// kama pesa ilitoka, vocha yake itaonekana hapa hapa mara itakapoandaliwa
+// (webhook iliyochelewa, au cron ya retry_pending_vouchers.php).
+function onyeshaMudaUmeisha() {
+    document.getElementById('spinner').style.display = 'none';
+    document.getElementById('card').innerHTML = `
+        <div class="icon">⏳</div>
+        <h2 style="color:#b26a00;">Bado Tunasubiri Jibu</h2>
+        <p>Hatujapata uthibitisho wa malipo bado. <b>Kama pesa imetoka kwenye simu yako, usiwe na wasiwasi</b> - vocha yako itatolewa mara tu tutakapothibitisha.</p>
+        <div class="code-box" style="font-size:15px;letter-spacing:1px;">${REF}</div>
+        <p style="font-size:12px;color:#888;">Tunza namba hii ya rejea.</p>
+        <button id="btn-angalia" style="margin-top:14px;padding:10px 20px;background:#1f8a3d;color:#fff;border:0;border-radius:8px;font-size:14px;cursor:pointer;">Angalia Tena</button>
+        <br>
+        <a href="index_backup.php" style="display:inline-block;margin-top:12px;font-size:13px;color:#1f8a3d;">Rudi Nyuma</a>
+    `;
+    document.getElementById('btn-angalia').addEventListener('click', function () {
+        this.disabled = true;
+        this.textContent = 'Inaangalia...';
+        fetch('check_payment_status.php?ref=' + encodeURIComponent(REF))
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'completed')      onyeshaMafanikio(data.voucher_code);
+                else if (data.status === 'failed')    onyeshaHitilafu(data.message || 'Malipo yameshindikana.');
+                else {
+                    this.disabled = false;
+                    this.textContent = 'Angalia Tena';
+                }
+            })
+            .catch(() => { this.disabled = false; this.textContent = 'Angalia Tena'; });
+    });
 }
 
 function onyeshaHitilafu(ujumbe) {

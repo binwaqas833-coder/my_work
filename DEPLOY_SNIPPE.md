@@ -250,6 +250,65 @@ Cron ndiyo kinga:
 
 ---
 
+## 5b. Cron za vocha — "pesa ikishaingia, vocha LAZIMA ifike"
+
+Ziko `/etc/cron.d/tech5g-vouchers` (zimewekwa 2026-09-04).
+
+```
+*/2 * * * * root ... php retry_pending_vouchers.php >> /var/log/tech5g-vouchers.log 2>&1
+*/5 * * * * root ... php router_health_check.php    >> /var/log/tech5g-router-health.log 2>&1
+```
+
+### Kwa nini zipo
+
+Tarehe **2026-09-04** mteja alilipa TZS 1,000. Snippe walipokea pesa na
+wakatuma webhook ya `payment.completed`. Router ya reseller (10.60.0.10)
+haikufikika kwenye tunnel ya WireGuard, hivyo vocha haikutengenezwa — na
+mfumo ukaandika muamala kama **`failed`**.
+
+Hilo lilikuwa kosa la aina mbili:
+
+1. `failed` ilimaanisha "mteja hakulipa". `completeVoucherPayment()`
+   inarudi mapema kwa rekodi ya `failed`, hivyo **hakuna kilichojaribu
+   tena** hata router iliporudi. Pesa ilipotea kimya kimya.
+2. Uchunguzi ulifichua kuwa routers 1, 2 na 3 zilikuwa **hazifikiki tangu
+   2026-08-16** — wiki tatu — bila mtu kujua. Alarm pekee ya mfumo ilikuwa
+   mteja kupoteza pesa.
+
+### Hali mpya ya muamala
+
+| Hali | Maana | Nani anaishughulikia |
+|---|---|---|
+| `pending` | hatujui kama amelipa | poll ya mteja / webhook |
+| `paid_pending_voucher` | **AMELIPA, vocha bado** — ni deni | `retry_pending_vouchers.php` |
+| `completed` | amelipa na amepata vocha | — |
+| `failed` | **HAKULIPA.** Ndiyo maana yake pekee | — |
+
+`markTransactionFailed()` sasa inakataa kugusa rekodi ya `completed` au
+`paid_pending_voucher`: webhook ya "failed" iliyochelewa haiwezi kufuta
+deni halali.
+
+### Kuangalia madeni yaliyopo
+
+```sql
+SELECT transaction_id, phone, amount, delivery_attempts, next_attempt_at, fail_reason
+  FROM payment_transactions WHERE status = 'paid_pending_voucher';
+```
+
+Yakiwepo na yamekaa muda mrefu, tatizo ni **router**, siyo malipo —
+angalia `router_health`:
+
+```sql
+SELECT * FROM router_health;   -- last_ok_at = mara ya mwisho API ilijibu
+```
+
+Router iliyozima: mpe mmiliki wake
+`downloads/tech5g_wireguard_repair.rsc` (maelezo yamo ndani ya faili).
+Router ikirudi, `router_health_check.php` inapanga madeni yake
+yajaribiwe **mara moja** badala ya kusubiri backoff.
+
+---
+
 ## 6. ADA — Tech5G HAITOZI CHOCHOTE
 
 Ada zote ni za **Snippe**, zinazopitishwa kwa mmiliki wa router kama
