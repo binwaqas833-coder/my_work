@@ -33,8 +33,14 @@ SMTP_SECURE    = ssl
 SMTP_USER      = info@timonsansibar.com
 SMTP_PASS      = <siri>
 MAIL_FROM      = info@timonsansibar.com
-MAIL_FROM_NAME = Tech 5G Wi-Fi
+MAIL_FROM_NAME = Tech5G
 ```
+
+> ⚠️ **`MAIL_FROM_NAME` haipaswi kuwa na nafasi.** `secrets.env` husomwa
+> na cron kwa `set -a; . secrets.env`, na nafasi isiyo kwenye nukuu
+> hufanya shell ijaribu kuendesha neno la pili — `5G: command not found`
+> — na thamani hukatika kuwa "Tech". Jina kamili la biashara lipo ndani
+> ya barua pepe yenyewe (`tech5gEmailTemplate`).
 
 Ziko `/var/www/tech5g/private/secrets.env` (640 root:tech5g). Baada ya
 kuhariri **lazima** uendeshe `/root/fix-secrets.sh` — inajenga upya

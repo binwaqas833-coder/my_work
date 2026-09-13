@@ -1,0 +1,46 @@
+# ============================================================
+# tech5g.cron — sakinisha kama /etc/cron.d/tech5g
+#
+#   sudo install -m 644 -o root -g root deploy/tech5g.cron /etc/cron.d/tech5g
+#   sudo touch /var/log/tech5g-{vouchers,router-health,payouts}.log
+#   sudo chown tech5g:tech5g /var/log/tech5g-*.log
+#
+# (cron hugundua mabadiliko ya /etc/cron.d yenyewe - hakuna haja ya
+#  ku-restart daemon.)
+#
+# ── KWA NINI FAILI HII IPO ──
+# Tarehe 2026-09-13 ilibainika kuwa VPS mpya (66.29.143.116) HAIKUWA NA
+# cron hata moja ya tech5g - zilikufa pamoja na seva ya zamani. Athari
+# za kukosekana kwake si ndogo:
+#
+#   retry_pending_vouchers — mteja aliyelipa wakati router yake imezima
+#                            HAPATI vocha, na hakuna kinachojaribu tena.
+#                            Hii ndiyo hasa hali iliyopoteza pesa ya
+#                            mteja tarehe 2026-09-04.
+#   router_health_check    — routers hufa kimya kimya. Ndivyo routers
+#                            1, 2 na 3 zilivyokaa zimezima wiki TATU
+#                            (tangu 2026-08-16) bila mtu kujua.
+#   poll_payouts           — Snippe huacha kujaribu webhook baada ya
+#                            mara 5; bila cron, cash-out hubaki
+#                            'awaiting_approval' MILELE.
+#
+# MUHIMU: zinaendeshwa kama mtumiaji `tech5g`, siyo root. Mtumiaji huyo
+# yuko kwenye group `tech5g`, hivyo anaweza kusoma secrets.env (640
+# root:tech5g). Usizibadilishe ziwe root bila sababu.
+#
+# MUHIMU #2: log files LAZIMA ziwepo na ziwe za tech5g KABLA. Cron
+# ikishindwa kuandika kwenye log, shell redirect hufeli, cron hutuma
+# barua ya kosa kwa mtumiaji asiye na sanduku, na hapo huanza bounce
+# loop (ndivyo "mail stuck" za uongo zilivyotokea 2026-09-04).
+# ============================================================
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+
+# pesa ikishaingia, vocha LAZIMA ifike
+*/2 * * * * tech5g set -a; . /var/www/tech5g/private/secrets.env; set +a; php /var/www/tech5g/app/retry_pending_vouchers.php >> /var/log/tech5g-vouchers.log 2>&1
+
+# afya ya router - kugeuza ukimya kuwa alert
+*/5 * * * * tech5g set -a; . /var/www/tech5g/private/secrets.env; set +a; php /var/www/tech5g/app/router_health_check.php >> /var/log/tech5g-router-health.log 2>&1
+
+# hali ya cash-out (Snippe huacha kujaribu webhook baada ya mara 5)
+*/5 * * * * tech5g set -a; . /var/www/tech5g/private/secrets.env; set +a; php /var/www/tech5g/app/poll_payouts.php >> /var/log/tech5g-payouts.log 2>&1
