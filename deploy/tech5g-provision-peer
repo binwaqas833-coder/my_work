@@ -31,9 +31,27 @@ VPS_IP="66.29.143.116"
 WG_PORT="51821"
 MAX_PEERS=200
 LOCK="/var/lock/tech5g-wg.lock"
-CREDS="/root/.tech5g-credentials"
+
+# Siri: VPS mpya (66.29.143.116) inazihifadhi kwenye private/secrets.env.
+# /root/.tech5g-credentials ilikuwa ya box ya ZAMANI na HAIPO hapa - script
+# ilikuwa inakufa na "credentials hazipatikani" kwa kila ombi la tunnel.
+# Tunaangalia mahali papya kwanza, kisha pa zamani kwa seva zisizosasishwa.
+CREDS="/var/www/tech5g/private/secrets.env"
+[ -f "$CREDS" ] || CREDS="/root/.tech5g-credentials"
 
 jibu_kosa() { printf '{"ok":false,"error":%s}\n' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/^/"/; s/$/"/')"; exit 1; }
+
+# Funguo ya UMMA ya seva. Awali ilikuwa `cat` ya moja kwa moja, na faili
+# hiyo HAIKUWEPO kwenye VPS mpya - kwa `set -e` script ilikufa kimya kimya
+# kabla ya kurudisha chochote. Kernel daima anaijua, hivyo tumuulize yeye
+# ikiwa faili haipo.
+srv_pub() {
+    if [ -r "${WG_DIR}/tech5g_server.pub" ]; then
+        cat "${WG_DIR}/tech5g_server.pub"
+    else
+        wg show "$WG_IF" public-key
+    fi
+}
 
 # ── 1. Hoja ──
 UID_IN="${1:-}"
@@ -76,7 +94,7 @@ if [ "$MODE" = "--regenerate" ]; then
     OLD_PUB="$(mysql_q "SELECT public_key FROM wg_peers WHERE id=${PEER_ID} LIMIT 1")"
     PRIV="$(wg genkey)"
     PUB="$(printf '%s' "$PRIV" | wg pubkey)"
-    SRV_PUB="$(cat "${WG_DIR}/tech5g_server.pub")"
+    SRV_PUB="$(srv_pub)"
 
     cp -a "$WG_CONF" "${WG_CONF}.bak-$(date +%Y%m%d-%H%M%S)"
     python3 - "$WG_CONF" "$OLD_PUB" <<'PY'
@@ -156,7 +174,7 @@ TUNNEL_IP="${SUBNET}.${OCTET}"
 
 PRIV="$(wg genkey)"
 PUB="$(printf '%s' "$PRIV" | wg pubkey)"
-SRV_PUB="$(cat "${WG_DIR}/tech5g_server.pub")"
+SRV_PUB="$(srv_pub)"
 
 cp -a "$WG_CONF" "${WG_CONF}.bak-$(date +%Y%m%d-%H%M%S)"
 {

@@ -1,0 +1,30 @@
+# ============================================================
+# tech5g-wg.sudoers — sakinisha kama /etc/sudoers.d/tech5g-wg
+#
+#   sudo install -m 440 -o root -g root deploy/tech5g-wg.sudoers /etc/sudoers.d/tech5g-wg
+#   sudo visudo -c          # THIBITISHA kabla ya kuondoka - sudoers mbovu
+#                           # inaweza kukufungia nje ya sudo kabisa
+#
+# ── KWA NINI ──
+# my_mikrotiks.php inaita `sudo -n /usr/local/sbin/tech5g-provision-peer`
+# ili reseller ajiombee tunnel ya WireGuard mwenyewe. Bila sheria hii
+# sudo hujibu "a password is required", script HAIENDESHWI kabisa, na
+# reseller haoni chochote zaidi ya "Imeshindikana kuandaa tunnel".
+# Kwenye VPS mpya sheria hii haikuwahi kuwekwa - maombi 17 yalifeli
+# hivyo kabla ya kugundulika (2026-09-13).
+#
+# ── USALAMA ──
+# Inaruhusu COMMAND MOJA tu, siyo shell wala wg moja kwa moja. Script
+# yenyewe (750 root:root - tech5g HAWEZI kuihariri) haiamini chochote
+# kinachotoka PHP: inakagua hoja kwa regex, inathibitisha YENYEWE kwenye
+# database kuwa mtumiaji yupo/ameidhinishwa/hajazidi kikomo cha mpango
+# wake, na PHP haichagui IP, funguo, wala peer ya kubadilisha.
+#
+# HAKUNA wildcard kwa makusudi: `... tech5g-provision-peer *` ingemruhusu
+# mtu mwenye tech5g kupitisha hoja zozote. Hoja zinakaguliwa ndani ya
+# script, hivyo hakuna haja ya kuziorodhesha hapa.
+#
+# MUHIMU: usiguse /etc/sudoers.d/www-data-wg - ile ni ya mshihiri
+# (Django/gunicorn) na inasimamia wg0, tunnel ya PROJECT NYINGINE.
+# ============================================================
+tech5g ALL=(root) NOPASSWD: /usr/local/sbin/tech5g-provision-peer
