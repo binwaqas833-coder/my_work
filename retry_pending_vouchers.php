@@ -31,8 +31,8 @@
  * MOJA tu. Muamala uliokwisha kuwa 'completed' hauguswi kabisa.
  *
  * Matumizi (VPS):
- *   set -a; . /root/.tech5g-credentials; set +a
- *   /usr/local/apps/php82/bin/php /var/www/tech5g/retry_pending_vouchers.php
+ *   set -a; . /var/www/tech5g/private/secrets.env; set +a
+ *   php /var/www/tech5g/app/retry_pending_vouchers.php
  * ------------------------------------------------------------------
  */
 
@@ -42,8 +42,12 @@ if (PHP_SAPI !== 'cli') {
 }
 
 $APP_DIR = getenv('TECH5G_DIR') ?: __DIR__;
-if (!file_exists($APP_DIR . '/login_signup.php') && file_exists('/var/www/tech5g/login_signup.php')) {
-    $APP_DIR = '/var/www/tech5g';
+if (!file_exists($APP_DIR . '/login_signup.php') && file_exists('/var/www/tech5g/app/login_signup.php')) {
+    // Kwenye VPS mpya code iko /var/www/tech5g/app, siyo /var/www/tech5g.
+    // Ukaguzi na thamani LAZIMA vilingane - vikitofautiana, $APP_DIR
+    // ingeelekezwa kwenye folder isiyo na login_signup.php na require
+    // ingefeli.
+    $APP_DIR = '/var/www/tech5g/app';
 }
 chdir($APP_DIR);
 require_once $APP_DIR . '/login_signup.php';    // config.php + $conn
