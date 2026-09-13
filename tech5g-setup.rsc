@@ -43,14 +43,14 @@
 
 # Walled Garden (majina ya tovuti zinazoruhusiwa bila kulipia)
 :local walledGardenHosts {"*.azampay.co.tz";"checkout.azampay.co.tz";"app.dalipay.co.tz";"*.dalipay.co.tz";"tech5g.co.tz";"*.tech5g.co.tz"}
-:local tech5gServerIP     "143.246.136.110"
+:local tech5gServerIP     "66.29.143.116"
 
 # WireGuard VPN
 :local wgListenPort       51821
 :local wgPrivateKey       "qGU+J4g8cz6bBX1igA7Jm7qAGWQdy1bKhNeeCPbi9Xs="
 :local wgLocalAddress     "10.60.0.5/24"
 :local wgPeerPublicKey    "/+4EytOmXXXXZook7/+hGbqjMFSbSrMgrYgCuxyyKXQ="
-:local wgEndpointAddress  "143.246.136.110"
+:local wgEndpointAddress  "66.29.143.116"
 :local wgEndpointPort     51821
 :local wgAllowedAddress   "10.60.0.0/24"
 

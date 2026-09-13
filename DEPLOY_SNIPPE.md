@@ -37,7 +37,7 @@ Mambo mawili yaliyorudi na Snippe, ambayo AzamPay ilikuwa imeyaondoa:
 ## 1. VPS — weka siri kwenye FPM pool
 
 ```bash
-ssh root@143.246.136.110
+ssh root@66.29.143.116
 nano /etc/php-fpm-tech5g/pool.d/tech5g.conf
 ```
 

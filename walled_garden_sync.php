@@ -81,7 +81,7 @@ if (!$ni_ya_umma) {
     fwrite(STDERR,
         "HITILAFU: IP iliyopatikana kwa '{$server_host}' ni '{$server_ip}' - siyo IP ya umma.\n" .
         "Walled-garden ingeruhusu anwani isiyo sahihi na portal isingefikika.\n" .
-        "Suluhisho: weka TECH5G_PUBLIC_IP=143.246.136.110 (au APP_BASE_URL sahihi) kisha jaribu tena.\n");
+        "Suluhisho: weka TECH5G_PUBLIC_IP=66.29.143.116 (au APP_BASE_URL sahihi) kisha jaribu tena.\n");
     exit(1);
 }
 

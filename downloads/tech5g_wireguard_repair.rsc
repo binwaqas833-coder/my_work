@@ -53,7 +53,7 @@
 :local apiPassword "tech@2026"
 
 # Hizi ni za mfumo - usizibadilishe.
-:local serverIP    "143.246.136.110"
+:local serverIP    "66.29.143.116"
 :local serverTunIP "10.60.0.1"
 :local tunnelNet   "10.60.0.0/24"
 :local apiPort     8728

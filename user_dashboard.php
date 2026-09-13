@@ -263,6 +263,11 @@ body::before{content:'';position:fixed;inset:0;background:rgba(0,0,0,0.30);point
 .sidebar-menu li.active a::before{content:'';position:absolute;left:0;top:20%;bottom:20%;width:3px;background:var(--accent);border-radius:0 2px 2px 0}
 .sidebar-menu a.logout-link{color:#ff6b6b}
 .sidebar-menu a.logout-link:hover{background:rgba(255,61,87,0.08);color:var(--red)}
+/* Njia ya haraka ya kurudi admin.php - inaonekana kwa admin PEKEE. */
+.sidebar-menu a.admin-link{color:var(--accent2)}
+.sidebar-menu a.admin-link .nav-icon{color:var(--accent2)}
+.sidebar-menu a.admin-link:hover{background:rgba(63,199,253,0.10);color:var(--accent2)}
+.sidebar-menu a.admin-link:hover .nav-icon{background:rgba(63,199,253,0.15);color:var(--accent2)}
 .sidebar-footer{flex-shrink:0;padding:18px 24px;border-top:1px solid var(--border)}
 .signal-meter{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text-dim)}
 .signal-bars{display:flex;gap:3px;align-items:flex-end}
@@ -499,6 +504,11 @@ code{font-family:'Space Mono',monospace;font-size:11px;color:var(--accent2);back
     </div>
     <div class="sidebar-section-label">Navigation</div>
     <ul class="sidebar-menu">
+        <?php if ($is_admin): ?>
+        <li>
+            <a href="admin.php" class="admin-link"><div class="nav-icon"><i class="fa-solid fa-user-shield"></i></div>Admin Panel</a>
+        </li>
+        <?php endif; ?>
         <li id="nav-dashboard" class="active">
             <a onclick="onyeshaSection('dashboard')"><div class="nav-icon"><i class="fa-solid fa-chart-pie"></i></div>Dashboard</a>
         </li>

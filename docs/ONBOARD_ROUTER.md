@@ -12,7 +12,7 @@ zikiwa tayari kwa kurudia kwa kila router mpya. Kila `«...»` badilisha na tham
 
 | Kipengele                    | Thamani                                        |
 | ---------------------------- | ---------------------------------------------- |
-| VPS public IP                | `143.246.136.110`                              |
+| VPS public IP                | `66.29.143.116`                              |
 | WireGuard interface (Tech5G) | `wg1`                                          |
 | WireGuard port               | `51821` (UDP)                                  |
 | Tunnel subnet                | `10.60.0.0/24`                                 |
@@ -34,7 +34,7 @@ Siri zote (DB, keys, admin) ziko kwenye VPS: `/root/.tech5g-credentials`.
 Kuna script tayari kwenye VPS inayofanya kila kitu cha upande wa VPS na kukupa commands za MikroTik:
 
 ```bash
-ssh root@143.246.136.110
+ssh root@66.29.143.116
 /root/add-tech5g-router.sh «jina» «octet»
 # mfano kwa reseller 'juma' kwenye 10.60.0.3:
 /root/add-tech5g-router.sh juma 3
@@ -82,7 +82,7 @@ add address=10.60.0.«octet»/24 interface=wg-tech5g
 
 /interface wireguard peers
 add interface=wg-tech5g public-key="/+4EytOmXXXXZook7/+hGbqjMFSbSrMgrYgCuxyyKXQ=" \
-    endpoint-address=143.246.136.110 endpoint-port=51821 \
+    endpoint-address=66.29.143.116 endpoint-port=51821 \
     allowed-address=10.60.0.0/24 persistent-keepalive=25s
 
 /ip firewall filter
@@ -141,7 +141,7 @@ lakini mteja hataingia (profile haipo).
 add dst-host=tech5g.co.tz
 add dst-host=*.tech5g.co.tz
 /ip hotspot walled-garden ip
-add dst-address=143.246.136.110 comment="Tech5G backend"
+add dst-address=66.29.143.116 comment="Tech5G backend"
 ```
 
 **Thibitisha (au rekebisha) walled-garden ya router ZOTE kwa script moja** — hii hupitia kila router
@@ -149,13 +149,13 @@ iliyo kwenye `mikrotik_configs` kupitia API, inalinganisha na orodha rasmi (port
 WhatsApp, IP ya VPS) na kuongeza zinazokosekana tu:
 
 ```bash
-ssh root@143.246.136.110
+ssh root@66.29.143.116
 set -a; . /root/.tech5g-credentials; set +a
 /usr/local/emps/bin/php /var/www/tech5g/walled_garden_sync.php            # dry-run: onyesha zinazokosekana
 /usr/local/emps/bin/php /var/www/tech5g/walled_garden_sync.php --apply    # tekeleza
 ```
 
-> **MUHIMU:** entry ya `dst-address=143.246.136.110` (walled-garden **IP**) ndiyo inayoruhusu HTTPS
+> **MUHIMU:** entry ya `dst-address=66.29.143.116` (walled-garden **IP**) ndiyo inayoruhusu HTTPS
 > kufika portal. Kwa `dst-host` pekee, mteja ambaye hajalipa anaweza kuona ukurasa mtupu.
 
 ---
