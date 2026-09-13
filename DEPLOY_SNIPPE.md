@@ -10,6 +10,31 @@ Gateway zilizotangulia (**Dalipay**, kisha **AzamPay**) zimeondolewa kabisa.
 
 ---
 
+## ⚠️ NJIA ZIMEBADILIKA — soma kabla ya kunakili amri yoyote
+
+Sehemu kubwa ya waraka huu iliandikwa kwa **VPS ya zamani ya Webuzo**
+(`143.246.136.110`), iliyokufa 2026-09-12. Kwenye VPS ya sasa
+(`66.29.143.116`, Ubuntu 24.04, bila panel) njia ni **tofauti**:
+
+| Kitu | Zamani (Webuzo) | **Sasa** |
+|---|---|---|
+| Code | `/var/www/tech5g/` | **`/var/www/tech5g/app/`** |
+| Siri | `/root/.tech5g-credentials` | **`/var/www/tech5g/private/secrets.env`** |
+| PHP (CLI) | `/usr/local/apps/php82/bin/php` | **`php`** (8.3) |
+| MySQL | `/usr/local/apps/mariadb1011/bin/mysql` (MariaDB) | **`mysql`** (MySQL 8.0) |
+| FPM pool | `/etc/php-fpm-tech5g/pool.d/tech5g.conf` | **`/etc/php/8.3/fpm/pool.d/tech5g.conf`** |
+| Ku-reload | `systemctl restart php-fpm-tech5g` | **`/root/fix-secrets.sh`** (hujenga pool + reload) |
+
+**Cron:** usinakili mistari ya cron kutoka hapa chini — ilikuwa na njia za
+zamani, na ndiyo sababu cron hazikuwekwa kabisa kwenye box mpya. Tumia
+faili iliyo kwenye repo: **`deploy/tech5g.cron`**.
+
+**Tunnel ya reseller:** inahitaji `/etc/sudoers.d/tech5g-wg`
+(**`deploy/tech5g-wg.sudoers`**). Bila hiyo kila ombi hufeli na
+"Imeshindikana kuandaa tunnel".
+
+---
+
 ## 0. Kwa nini Snippe ni rahisi kuliko zilizotangulia
 
 | | Dalipay | AzamPay | **Snippe** |
@@ -36,31 +61,36 @@ Mambo mawili yaliyorudi na Snippe, ambayo AzamPay ilikuwa imeyaondoa:
 
 ## 1. VPS — weka siri kwenye FPM pool
 
+Kwenye box mpya **hauhariri pool moja kwa moja** — inajengwa kutoka
+`secrets.env`. Ukiihariri kwa mkono, mabadiliko yako yatafutwa mara ya
+kwanza mtu atakapoendesha `/root/fix-secrets.sh`.
+
 ```bash
 ssh root@66.29.143.116
-nano /etc/php-fpm-tech5g/pool.d/tech5g.conf
+nano /var/www/tech5g/private/secrets.env
 ```
 
-> **Njia hii SIYO ya kubahatisha.** Webuzo hu-regenerate
-> `/usr/local/apps/php82/etc/php-fpm.conf` kila usiku na kufuta mstari wa
-> `include=` — jambo lililozima tovuti kwa saa 5+ tarehe 2026-08-08. App ina
-> service yake binafsi (`php-fpm-tech5g.service`). Usirudishe pool kwenye `php-fpm.d/`.
-
-Ongeza ndani ya block ya pool (pamoja na `env[...]` zilizopo za DB na `MIKROTIK_ENC_KEY`):
+Ongeza (au badilisha) mistari hii — **bila nukuu, bila nafasi**:
 
 ```ini
-env[SNIPPE_API_KEY]        = "«snp_...»"
-env[SNIPPE_WEBHOOK_SECRET] = "«whsec_...»"
+SNIPPE_API_KEY=«snp_...»
+SNIPPE_WEBHOOK_SECRET=«whsec_...»
 ```
 
-Kisha:
+Kisha jenga pool upya na u-reload php-fpm kwa amri moja:
 
 ```bash
-systemctl restart php-fpm-tech5g
+/root/fix-secrets.sh
 ```
 
-Hifadhi nakala kwenye `/root/.tech5g-credentials` (chmod 600) — cron ya
-`poll_payouts.php` inasoma hapo.
+> **php-fpm HUKATAA `env[]` yenye thamani tupu** na master mzima hushindwa
+> kuanza. `fix-secrets.sh` huruka key yoyote isiyo na thamani badala ya
+> kuandika `env[X] = ""` — usiirudishe kwa mkono.
+>
+> Pia: haitoi nukuu. Thamani yenye **nafasi** (mfano `MAIL_FROM_NAME`)
+> huvunja `set -a; . secrets.env` ya cron. Epuka nafasi.
+
+Cron ya `poll_payouts.php` inasoma faili hiyo hiyo (`secrets.env`), siyo pool.
 
 **API key inapatikana wapi:** Dashboard → **Settings → API Keys** →
 *Create API Key*. Scopes zinazohitajika (zote nne):
@@ -111,10 +141,17 @@ faili iliyosahaulika haiwezi kuteka production.
 ## 2. Database
 
 ```bash
-set -a; . /root/.tech5g-credentials; set +a
-/usr/local/apps/mariadb1011/bin/mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" \
-    < /var/www/tech5g/migrations/2026-09-02_snippe_gateway.sql
+set -a; . /var/www/tech5g/private/secrets.env; set +a
+mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" \
+    < /var/www/tech5g/private/migrations/2026-09-13_mysql8_catchup.sql
 ```
+
+> ⚠️ **USITUMIE `2026-09-02_snippe_gateway.sql` kwenye box hii.** Inatumia
+> `ADD COLUMN IF NOT EXISTS` — syntax ya MariaDB PEKEE, ambayo ni *syntax
+> error* kwenye MySQL 8 na husimamisha migration NZIMA. Migration ya
+> `2026-09-13_mysql8_catchup.sql` hufanya kazi ile ile (pamoja na za
+> 2026-08-07, 08-08, 08-09, 08-22 na 09-04) kwa njia inayokubalika kwenye
+> MariaDB **na** MySQL 8, na ni salama kuiendesha mara nyingi.
 
 Inafanya matatu:
 
@@ -197,7 +234,7 @@ curl -sS https://api.snippe.sh/v1/payments/balance \
 
 ```bash
 cd /var/www/tech5g
-set -a; . /root/.tech5g-credentials; set +a
+set -a; . /var/www/tech5g/private/secrets.env; set +a
 /usr/local/emps/bin/php -r 'require "config.php"; var_dump(SNIPPE_ENABLED, PAYMENT_MOCK_MODE);'
 ```
 
@@ -244,8 +281,8 @@ Webhook huharakisha matokeo, lakini Snippe wanaacha baada ya majaribio 5.
 Cron ndiyo kinga:
 
 ```
-*/5 * * * * root set -a; . /root/.tech5g-credentials; set +a; \
-  /usr/local/apps/php82/bin/php /var/www/tech5g/poll_payouts.php >> /var/log/tech5g-payouts.log 2>&1
+*/5 * * * * root set -a; . /var/www/tech5g/private/secrets.env; set +a; \
+  php /var/www/tech5g/app/poll_payouts.php >> /var/log/tech5g-payouts.log 2>&1
 ```
 
 ---
@@ -360,7 +397,7 @@ zinapofafanuliwa.
 
 | Dalili | Sababu / Suluhisho |
 |--------|--------------------|
-| Vocha zinatoka bila malipo | Mfumo uko MOCK. §4(b), kisha `systemctl restart php-fpm-tech5g`. |
+| Vocha zinatoka bila malipo | Mfumo uko MOCK. §4(b), kisha `/root/fix-secrets.sh`. |
 | "Imeshindikana kuanzisha malipo" | `admin_error_logs.php` ina sababu halisi kutoka Snippe. |
 | Webhook zote 401 | `SNIPPE_WEBHOOK_SECRET` haifanani na ya Dashboard, **au** saa ya seva imepotoka zaidi ya dakika 5 (`timedatectl`). |
 | Muamala unakwama 'pending' | Webhook haifiki NA poll haipati hali. Kagua §4(a) na §4(c). |
