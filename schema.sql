@@ -23,8 +23,11 @@
 -- Kutengeneza admin wa kwanza (baada ya kuinstall PHP):
 --   php -r "echo password_hash('WEKA_PASSWORD_HAPA', PASSWORD_DEFAULT), PHP_EOL;"
 --   kisha:
---   INSERT INTO users (username, email, phone, password, status, role)
---   VALUES ('admin', 'wewe@mfano.com', '07XXXXXXXX', '<hash_hapo_juu>', 'approved', 'admin');
+--   INSERT INTO users (username, email, phone, password, status, role, email_verified)
+--   VALUES ('admin', 'wewe@mfano.com', '07XXXXXXXX', '<hash_hapo_juu>', 'approved', 'admin', 1);
+--
+--   MUHIMU: email_verified LAZIMA iwe 1. Default ni 0, na mtumiaji asiye-
+--   thibitishwa hawezi kuingia - ungejifungia nje ukiiacha.
 -- ============================================================
 
 CREATE DATABASE IF NOT EXISTS login_signup CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -52,6 +55,16 @@ CREATE TABLE users (
     id                      INT AUTO_INCREMENT PRIMARY KEY,
     username                VARCHAR(100) NOT NULL UNIQUE,
     email                   VARCHAR(100) NULL,
+    -- ── Uthibitisho wa barua pepe kwa OTP (otp_helper.php) ──
+    -- OTP HAIHIFADHIWI WAZI: tunahifadhi hash (password_hash) tu, ili
+    -- database ikivuja code zilizopo zisiweze kutumika.
+    email_verified          TINYINT(1)   NOT NULL DEFAULT 0,
+    otp_hash                VARCHAR(255) NULL,       -- hash ya code; NULL = hakuna inayosubiri
+    otp_expires_at          DATETIME     NULL,
+    otp_attempts            TINYINT      NOT NULL DEFAULT 0,  -- kuzuia kubahatisha code
+    otp_sent_at             DATETIME     NULL,       -- kuzuia "Tuma tena" bila kikomo
+    otp_sends_hour          TINYINT      NOT NULL DEFAULT 0,  -- rate limit ya saa moja
+    otp_window_start        DATETIME     NULL,
     phone                   VARCHAR(20)  NULL,
     password                VARCHAR(255) NOT NULL,
     pending_password        VARCHAR(255) NULL,       -- password mpya inayosubiri admin a-approve (reset flow)
@@ -69,7 +82,8 @@ CREATE TABLE users (
     balance                 DECIMAL(10,2) NOT NULL DEFAULT 0,
     created_at              TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_parent_admin (parent_admin_id),
-    KEY fk_last_router (last_active_router_id)
+    KEY fk_last_router (last_active_router_id),
+    KEY idx_users_email (email)                      -- usajili huangalia email inayojirudia
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ── ROUTER(S) ZA MIKROTIK ZA KILA RESELLER (reseller mmoja anaweza kuwa na routers kadhaa) ──
@@ -82,6 +96,9 @@ CREATE TABLE mikrotik_configs (
     api_pass     VARCHAR(100) NOT NULL,
     api_port     INT          NOT NULL DEFAULT 8728,
     allowed_ips  TEXT         NULL,                  -- whitelist (save_whitelist.php)
+    -- Merchant anaweza kuzima "Jaribu Dakika 5 Bure" kwa router hii.
+    -- Default 1 = imewashwa (tabia ya zamani isibadilike ghafla).
+    trial_enabled TINYINT(1)  NOT NULL DEFAULT 1,
     created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_user_id (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

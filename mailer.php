@@ -15,14 +15,25 @@
  * Sasa: PHPMailer ime-"vendor"-iwa ndani ya PHPMailer/src/, na siri zote
  * zinatoka kwenye environment (env[...] ya FPM pool), siyo kwenye code.
  *
- * MIPANGILIO (weka kwenye /etc/php-fpm-tech5g/pool.d/tech5g.conf):
- *   env[SMTP_HOST]      = "smtp.zoho.com"
- *   env[SMTP_PORT]      = "587"
- *   env[SMTP_SECURE]    = "tls"            ; 'tls' (587) au 'ssl' (465)
- *   env[SMTP_USER]      = "support@tech5g.co.tz"
+ * MIPANGILIO: siri zote zinatoka kwenye environment (env[...] ya FPM
+ * pool), siyo kwenye code. Kwenye VPS ya sasa (66.29.143.116) pool ni
+ * /etc/php/8.3/fpm/pool.d/tech5g.conf, na inatengenezwa kutoka
+ * /var/www/tech5g/private/secrets.env na /root/fix-secrets.sh.
+ *
+ *   env[SMTP_HOST]      = "timonsansibar.com"
+ *   env[SMTP_PORT]      = "465"
+ *   env[SMTP_SECURE]    = "ssl"            ; 'ssl' (465) au 'tls' (587)
+ *   env[SMTP_USER]      = "info@timonsansibar.com"
  *   env[SMTP_PASS]      = "..."
- *   env[MAIL_FROM]      = "support@tech5g.co.tz"
+ *   env[MAIL_FROM]      = "info@timonsansibar.com"
  *   env[MAIL_FROM_NAME] = "Tech 5G Wi-Fi"
+ *
+ * KWA NINI MAIL_FROM SIYO support@tech5g.co.tz:
+ * Tunatuma kupitia Namecheap (timonsansibar.com), na wao HUKATAA barua
+ * yenye From ya domain isiyo yao: "550 Your domain tech5g.co.tz is not
+ * allowed in header From". Zaidi ya hapo, tech5g.co.tz kwa sasa HAINA
+ * rekodi ya MX, hivyo majibu yanayokwenda support@ yangedondoka.
+ * Jina la biashara linabaki "Tech 5G Wi-Fi"; anwani pekee ndiyo tofauti.
  * ------------------------------------------------------------------
  */
 
@@ -39,19 +50,23 @@ use PHPMailer\PHPMailer\Exception as PHPMailerException;
  */
 function tech5gMailConfig(): ?array
 {
-    // GMAIL_* ni majina ya zamani - yanakubaliwa bado ili mfumo usisimame
-    // ghafla wakati wa kuhamia Zoho, lakini SMTP_* ndiyo sahihi sasa.
+    // SMTP_* ndiyo majina sahihi. GMAIL_* ni ya zamani na yanakubaliwa
+    // kama fallback pekee ili seva isiyokuwa imesasishwa isisimame ghafla.
     $user = getenv('SMTP_USER') ?: getenv('GMAIL_USER');
     $pass = getenv('SMTP_PASS') ?: getenv('GMAIL_APP_PASSWORD');
 
-    // php-fpm HAIKUBALI env[] yenye thamani tupu, hivyo pool ina placeholder
-    // mpaka App Password halisi ya Zoho itakapowekwa. Tuitambue hapa ili
-    // tusipoteze muda kujaribu ku-authenticate kwa password ya uongo.
-    if ($pass === 'WEKA_APP_PASSWORD_YA_ZOHO_HAPA') {
-        $pass = '';
+    if (!$user || !$pass) {
+        return null;
     }
 
-    if (!$user || !$pass) {
+    // SMTP_HOST HAINA default kwa makusudi. Default yoyote ni hatari hapa:
+    // php-fpm HUKATAA env[] yenye thamani tupu, hivyo key isiyojazwa
+    // HUONDOLEWA kabisa kwenye pool badala ya kuwa tupu. Kukiwa na default,
+    // mfumo ungeelekeza barua kwa seva tusiyoitumia, kimya kimya, na
+    // kushindwa bila sababu ya wazi. Bora tukatae mapema na tueleze.
+    $host = getenv('SMTP_HOST') ?: '';
+    if ($host === '') {
+        error_log('mailer.php: SMTP_HOST haijawekwa kwenye environment - email haijatumwa.');
         return null;
     }
 
@@ -59,7 +74,7 @@ function tech5gMailConfig(): ?array
     $port   = (int)(getenv('SMTP_PORT') ?: ($secure === 'ssl' ? 465 : 587));
 
     return [
-        'host'      => getenv('SMTP_HOST') ?: 'smtp.zoho.com',
+        'host'      => $host,
         'port'      => $port,
         'secure'    => $secure === 'ssl' ? PHPMailer::ENCRYPTION_SMTPS : PHPMailer::ENCRYPTION_STARTTLS,
         'user'      => $user,
